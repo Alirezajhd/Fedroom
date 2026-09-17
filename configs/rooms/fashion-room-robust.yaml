@@ -1,0 +1,24 @@
+room_id: fashion-room-robust
+framework: pytorch
+model_contract: cnn-fmnist-v1
+preprocessing_contract: fmnist-normalize-v1
+
+aggregation:
+  strategy: multi_krum        # try: trimmed_mean | median | krum | multi_krum
+  min_available_clients: 5
+  min_fit_clients: 5
+  quorum: 0.6
+  round_timeout_seconds: 120
+  byzantine_f: 1               # tolerate up to 1 malicious/poisoned client per round
+  max_update_norm: 50.0
+
+training:
+  rounds: 10
+  local_epochs: 1
+  learning_rate: 0.01
+
+storage:
+  checkpoint_uri: s3://flaas-models/fashion-room-robust/
+
+tracking:
+  mlflow_experiment: fedroom-fashion-room-robust

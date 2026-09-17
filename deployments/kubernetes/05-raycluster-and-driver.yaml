@@ -1,0 +1,66 @@
+# Requires the KubeRay operator to be installed in the cluster
+# (https://github.com/ray-project/kuberay). This RayCluster is the engine
+# behind experiments/run_scalability.py's 20-100 "logical client" simulation
+# (Part 3.4): each simulated client runs as a lightweight Ray actor
+# distributed across the Ray worker pods below, rather than as a full
+# Kubernetes pod each -- exactly the "submit jobs, schedule resources, scale
+# execution" role Ray is meant to play in this architecture, distinct from
+# the real multi-pod deployment in 04-client-job.yaml.
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: fedroom-ray
+  namespace: fedroom
+spec:
+  rayVersion: "2.10.0"
+  headGroupSpec:
+    rayStartParams:
+      dashboard-host: "0.0.0.0"
+    template:
+      spec:
+        containers:
+          - name: ray-head
+            image: fedroom/client:latest   # reuses the client image (has ray + torch)
+            command: ["ray", "start", "--head", "--block", "--dashboard-host=0.0.0.0"]
+            ports:
+              - {containerPort: 6379, name: gcs}
+              - {containerPort: 8265, name: dashboard}
+              - {containerPort: 10001, name: client}
+            resources:
+              requests: {cpu: "500m", memory: "1Gi"}
+              limits: {cpu: "2", memory: "2Gi"}
+  workerGroupSpecs:
+    - groupName: workers
+      replicas: 3
+      minReplicas: 1
+      maxReplicas: 8
+      rayStartParams: {}
+      template:
+        spec:
+          containers:
+            - name: ray-worker
+              image: fedroom/client:latest
+              command: ["ray", "start", "--address=fedroom-ray-head-svc:6379", "--block"]
+              resources:
+                requests: {cpu: "500m", memory: "1Gi"}
+                limits: {cpu: "2", memory: "2Gi"}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fedroom-scalability-driver
+  namespace: fedroom
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: driver
+          image: fedroom/client:latest
+          command: ["python", "experiments/run_scalability.py"]
+          env:
+            - {name: RAY_ADDRESS, value: "ray://fedroom-ray-head-svc:10001"}
+            - {name: FEDROOM_COORDINATOR_URL, value: "http://coordinator:8000"}
+            - {name: FEDROOM_ROOM_ID, value: "fashion-room"}
+            - {name: SCALE_LEVELS, value: "1,2,4,8,20,50,100"}

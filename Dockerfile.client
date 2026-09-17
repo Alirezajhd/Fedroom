@@ -1,0 +1,22 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements-client.txt ./requirements-client.txt
+RUN pip install --no-cache-dir -r requirements-client.txt
+
+COPY coordinator ./coordinator
+COPY strategies ./strategies
+COPY client ./client
+COPY tui ./tui
+COPY configs ./configs
+
+ENV PYTHONPATH=/app
+VOLUME ["/app/data"]
+
+ENTRYPOINT ["python", "-m", "client.agent"]
+CMD ["configs/clients/client-a.yaml", "--rounds", "5"]

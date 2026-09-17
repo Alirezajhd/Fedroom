@@ -1,0 +1,24 @@
+room_id: fashion-room
+framework: pytorch
+model_contract: cnn-fmnist-v1
+preprocessing_contract: fmnist-normalize-v1
+
+aggregation:
+  strategy: fedavg          # fedavg | trimmed_mean | median | krum | multi_krum
+  min_available_clients: 1
+  min_fit_clients: 1
+  quorum: 0.67
+  round_timeout_seconds: 120
+  byzantine_f: 0             # only used by trimmed_mean / median / krum / multi_krum
+  max_update_norm: null      # set a float to enable a hard update-size limit
+
+training:
+  rounds: 10
+  local_epochs: 1
+  learning_rate: 0.01
+
+storage:
+  checkpoint_uri: s3://flaas-models/fashion-room/
+
+tracking:
+  mlflow_experiment: fedroom-fashion-room

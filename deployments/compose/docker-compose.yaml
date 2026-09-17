@@ -1,0 +1,122 @@
+version: "3.9"
+
+x-coordinator-env: &coordinator-env
+  DATABASE_URL: sqlite:///./data/fedroom.db
+  CHECKPOINT_BACKEND: s3
+  S3_CHECKPOINT_BUCKET: flaas-models
+  S3_ENDPOINT_URL: http://minio:9000
+  S3_ACCESS_KEY: fedroomadmin
+  S3_SECRET_KEY: fedroomsecret
+  MLFLOW_TRACKING_URI: http://mlflow:5000
+  FEDROOM_TICK_INTERVAL: "2.0"
+
+services:
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: fedroomadmin
+      MINIO_ROOT_PASSWORD: fedroomsecret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 fedroomadmin fedroomsecret &&
+      mc mb -p local/flaas-models &&
+      mc mb -p local/mlflow-artifacts &&
+      mc mb -p local/fedroom-client-data &&
+      exit 0
+      "
+
+  mlflow:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.mlflow
+    ports:
+      - "5000:5000"
+    environment:
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: fedroomadmin
+      AWS_SECRET_ACCESS_KEY: fedroomsecret
+    volumes:
+      - mlflow-data:/mlflow
+    command: >
+      mlflow server
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --default-artifact-root s3://mlflow-artifacts/
+      --host 0.0.0.0 --port 5000
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+
+  coordinator:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.coordinator
+    ports:
+      - "8000:8000"
+    environment:
+      <<: *coordinator-env
+    volumes:
+      - coordinator-data:/app/data
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+      mlflow:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  client-a:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.client
+    environment:
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_ACCESS_KEY: fedroomadmin
+      S3_SECRET_KEY: fedroomsecret
+    volumes:
+      - client-a-data:/app/data
+    depends_on:
+      coordinator:
+        condition: service_healthy
+    command: ["configs/clients/client-a.yaml", "--rounds", "10"]
+
+  client-b:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.client
+    environment:
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_ACCESS_KEY: fedroomadmin
+      S3_SECRET_KEY: fedroomsecret
+    volumes:
+      - client-b-data:/app/data
+    depends_on:
+      coordinator:
+        condition: service_healthy
+    command: ["configs/clients/client-b.yaml", "--rounds", "10"]
+
+volumes:
+  minio-data:
+  mlflow-data:
+  coordinator-data:
+  client-a-data:
+  client-b-data:

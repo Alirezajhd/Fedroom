@@ -1,0 +1,13 @@
+[project]
+name = "fedroom"
+version = "1.0.0"
+description = "Fedroom: a cloud-native Federated Learning as a Service platform"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"

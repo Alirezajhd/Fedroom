@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coordinator-config
+  namespace: fedroom
+data:
+  DATABASE_URL: "sqlite:///./data/fedroom.db"
+  CHECKPOINT_BACKEND: "s3"
+  S3_CHECKPOINT_BUCKET: "flaas-models"
+  S3_ENDPOINT_URL: "http://minio:9000"
+  MLFLOW_TRACKING_URI: "http://mlflow:5000"
+  FEDROOM_TICK_INTERVAL: "2.0"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: coordinator-data
+  namespace: fedroom
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coordinator
+  namespace: fedroom
+spec:
+  replicas: 1     # control-plane singleton; see docs/architecture.md for the
+                   # multi-server bonus discussion
+  selector:
+    matchLabels: {app: coordinator}
+  template:
+    metadata:
+      labels: {app: coordinator}
+    spec:
+      containers:
+        - name: coordinator
+          image: fedroom/coordinator:latest
+          envFrom:
+            - configMapRef: {name: coordinator-config}
+            - secretRef: {name: minio-credentials}
+          env:
+            - {name: S3_ACCESS_KEY, valueFrom: {secretKeyRef: {name: minio-credentials, key: MINIO_ROOT_USER}}}
+            - {name: S3_SECRET_KEY, valueFrom: {secretKeyRef: {name: minio-credentials, key: MINIO_ROOT_PASSWORD}}}
+          ports:
+            - {containerPort: 8000}
+          volumeMounts:
+            - {name: data, mountPath: /app/data}
+          readinessProbe:
+            httpGet: {path: /healthz, port: 8000}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests: {cpu: "250m", memory: "256Mi"}
+            limits: {cpu: "1", memory: "512Mi"}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: coordinator-data}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: coordinator
+  namespace: fedroom
+spec:
+  selector: {app: coordinator}
+  ports:
+    - {port: 8000, targetPort: 8000}
+  type: ClusterIP

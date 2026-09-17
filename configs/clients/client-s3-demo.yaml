@@ -1,0 +1,15 @@
+client_id: client-s3-demo
+coordinator_url: http://localhost:8000
+room_id: fashion-room
+data_source: s3
+partition_scheme: iid
+n_clients: 3
+s3_bucket: fedroom-client-data
+s3_key: client-s3-demo/shard.npz
+local_epochs: 1
+learning_rate: 0.01
+batch_size: 32
+poll_interval_seconds: 2.0
+capabilities:
+  cpu_cores: 2
+  gpu: false

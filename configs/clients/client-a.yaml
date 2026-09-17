@@ -1,0 +1,15 @@
+client_id: client-a
+coordinator_url: http://localhost:8000
+room_id: fashion-room
+data_source: local           # local | s3
+partition_scheme: iid        # iid | non_iid
+n_clients: 3
+samples_per_client: 600
+local_data_root: ./data/raw
+local_epochs: 1
+learning_rate: 0.01
+batch_size: 32
+poll_interval_seconds: 2.0
+capabilities:
+  cpu_cores: 4
+  gpu: false

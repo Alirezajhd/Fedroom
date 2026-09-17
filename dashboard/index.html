@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Fedroom Dashboard</title>
+<style>
+  :root {
+    --bg: #0f1117; --panel: #171a23; --border: #262a37; --text: #e6e8ee;
+    --muted: #8b90a0; --accent: #5b8cff; --good: #3ecf8e; --warn: #f2c94c;
+    --bad: #f2555a; --grey: #4b5064;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text);
+  }
+  header {
+    display: flex; align-items: center; gap: 16px; padding: 14px 22px;
+    border-bottom: 1px solid var(--border); position: sticky; top: 0;
+    background: var(--bg); z-index: 5;
+  }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  header input {
+    background: var(--panel); border: 1px solid var(--border); color: var(--text);
+    padding: 6px 10px; border-radius: 6px; font-size: 13px; width: 260px;
+  }
+  header .status-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--grey); display: inline-block;
+  }
+  header .status-dot.ok { background: var(--good); }
+  header .status-dot.bad { background: var(--bad); }
+  main { display: grid; grid-template-columns: 280px 1fr; gap: 0; min-height: calc(100vh - 58px); }
+  nav {
+    border-right: 1px solid var(--border); padding: 14px; overflow-y: auto;
+  }
+  nav .room-item {
+    padding: 10px 12px; border-radius: 8px; cursor: pointer; margin-bottom: 6px;
+    border: 1px solid transparent; font-size: 13px;
+  }
+  nav .room-item:hover { background: var(--panel); }
+  nav .room-item.active { background: var(--panel); border-color: var(--accent); }
+  nav .room-item .rid { font-weight: 600; }
+  nav .room-item .meta { color: var(--muted); font-size: 11px; margin-top: 3px; }
+  section.content { padding: 20px 26px; }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 18px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .card .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  .card .value { font-size: 24px; font-weight: 700; margin-top: 4px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; }
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600;
+  }
+  .badge.selected, .badge.eligible, .badge.joined { background: #24304a; color: #7fa8ff; }
+  .badge.completed { background: #16332a; color: var(--good); }
+  .badge.failed, .badge.dropped { background: #3a1f22; color: var(--bad); }
+  .badge.left { background: #262a37; color: var(--muted); }
+  .panel-title { font-size: 13px; font-weight: 600; margin: 22px 0 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .bars { display: flex; align-items: flex-end; gap: 6px; height: 120px; padding: 10px 0; }
+  .bar-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; }
+  .bar { width: 100%; background: var(--accent); border-radius: 3px 3px 0 0; min-height: 2px; }
+  .bar-wrap .bar-label { font-size: 10px; color: var(--muted); }
+  .empty { color: var(--muted); font-size: 13px; padding: 30px 0; text-align: center; }
+  code { background: var(--panel); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <span id="status-dot" class="status-dot"></span>
+  <h1>Fedroom</h1>
+  <span class="sub">operational dashboard</span>
+  <div style="flex:1"></div>
+  <label class="sub">Coordinator URL</label>
+  <input id="url-input" value="" />
+</header>
+<main>
+  <nav id="room-nav"><div class="empty">Loading rooms...</div></nav>
+  <section class="content" id="content"><div class="empty">Select a room</div></section>
+</main>
+
+<script>
+const state = { url: localStorage.getItem('fedroom_url') || window.location.origin, rooms: [], selected: null };
+document.getElementById('url-input').value = state.url;
+document.getElementById('url-input').addEventListener('change', (e) => {
+  state.url = e.target.value.replace(/\/$/, '');
+  localStorage.setItem('fedroom_url', state.url);
+  refresh();
+});
+
+function badge(status) {
+  return `<span class="badge ${status}">${status}</span>`;
+}
+
+async function fetchJSON(path) {
+  const res = await fetch(`${state.url}${path}`);
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return res.json();
+}
+
+function renderNav() {
+  const nav = document.getElementById('room-nav');
+  if (!state.rooms.length) {
+    nav.innerHTML = '<div class="empty">No rooms yet.<br>Create one via the CLI.</div>';
+    return;
+  }
+  nav.innerHTML = state.rooms.map(r => `
+    <div class="room-item ${state.selected === r.room_id ? 'active' : ''}" data-room="${r.room_id}">
+      <div class="rid">${r.room_id}</div>
+      <div class="meta">${r.state} &middot; round ${r.current_round} &middot; v${r.current_version} &middot; ${Object.keys(r.clients).length} clients</div>
+    </div>
+  `).join('');
+  nav.querySelectorAll('.room-item').forEach(el => {
+    el.addEventListener('click', () => { state.selected = el.dataset.room; renderContent(); });
+  });
+}
+
+function renderContent() {
+  const content = document.getElementById('content');
+  if (!state.selected) { content.innerHTML = '<div class="empty">Select a room</div>'; return; }
+  const room = state.rooms.find(r => r.room_id === state.selected);
+  if (!room) { content.innerHTML = '<div class="empty">Room not found</div>'; return; }
+
+  const clientRows = Object.entries(room.clients).map(([cid, c]) => `
+    <tr><td>${cid}</td><td>${badge(c.status)}</td><td>${c.eligible_from_round}</td></tr>
+  `).join('') || '<tr><td colspan="3" class="empty">No clients joined</td></tr>';
+
+  const ckRows = room.checkpoints.slice().reverse().map(c => `
+    <tr><td>v${c.version}</td><td><code>${c.uri}</code></td><td>${c.n_clients}</td></tr>
+  `).join('') || '<tr><td colspan="3" class="empty">No checkpoints yet</td></tr>';
+
+  const active = room.active_round;
+  const activeHtml = active ? `
+    <div class="grid">
+      <div class="card"><div class="label">Round</div><div class="value">${active.round_number}</div></div>
+      <div class="card"><div class="label">Selected</div><div class="value">${active.selected.length}</div></div>
+      <div class="card"><div class="label">Completed</div><div class="value">${active.completed.length}</div></div>
+      <div class="card"><div class="label">Elapsed (s)</div><div class="value">${active.elapsed_seconds.toFixed(1)}</div></div>
+    </div>
+  ` : '<div class="empty">No round currently in progress</div>';
+
+  const history = room.metrics_history || [];
+  const maxDur = Math.max(1, ...history.map(m => m.duration_seconds || 0));
+  const bars = history.length ? `
+    <div class="bars">
+      ${history.map(m => `
+        <div class="bar-wrap">
+          <div class="bar" style="height:${Math.max(4, (m.duration_seconds / maxDur) * 100)}px" title="${m.duration_seconds.toFixed(2)}s"></div>
+          <div class="bar-label">r${m.round}</div>
+        </div>
+      `).join('')}
+    </div>
+  ` : '<div class="empty">No completed rounds yet</div>';
+
+  content.innerHTML = `
+    <div class="grid">
+      <div class="card"><div class="label">State</div><div class="value" style="font-size:16px">${room.state}</div></div>
+      <div class="card"><div class="label">Version</div><div class="value">${room.current_version}</div></div>
+      <div class="card"><div class="label">Round</div><div class="value">${room.current_round} / ${room.target_rounds}</div></div>
+      <div class="card"><div class="label">Clients</div><div class="value">${Object.keys(room.clients).length}</div></div>
+    </div>
+
+    <div class="panel-title">Active round</div>
+    ${activeHtml}
+
+    <div class="panel-title">Clients</div>
+    <table><thead><tr><th>Client ID</th><th>Status</th><th>Eligible from round</th></tr></thead>
+      <tbody>${clientRows}</tbody></table>
+
+    <div class="panel-title">Round duration history</div>
+    ${bars}
+
+    <div class="panel-title">Checkpoints</div>
+    <table><thead><tr><th>Version</th><th>URI</th><th>Clients</th></tr></thead>
+      <tbody>${ckRows}</tbody></table>
+  `;
+}
+
+async function refresh() {
+  const dot = document.getElementById('status-dot');
+  try {
+    state.rooms = await fetchJSON('/rooms');
+    dot.className = 'status-dot ok';
+    if (!state.selected && state.rooms.length) state.selected = state.rooms[0].room_id;
+    renderNav();
+    renderContent();
+  } catch (e) {
+    dot.className = 'status-dot bad';
+    document.getElementById('room-nav').innerHTML = `<div class="empty">Cannot reach coordinator at<br><code>${state.url}</code></div>`;
+  }
+}
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>
