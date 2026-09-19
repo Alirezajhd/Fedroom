@@ -152,7 +152,6 @@ def _summarize_client_metrics(client_metrics: Dict[str, dict]) -> dict:
         approximates how well the *previous* global checkpoint generalizes.
     """
     numeric_keys = [
-<<<<<<< HEAD
         "local_training_seconds",
         "download_seconds",
         "upload_seconds",
@@ -174,18 +173,6 @@ def _summarize_client_metrics(client_metrics: Dict[str, dict]) -> dict:
     payload_values = [
         m["payload_bytes"]
         for m in client_metrics.values()
-=======
-        "local_training_seconds", "download_seconds", "upload_seconds", "selection_wait_seconds",
-        "train_loss", "train_accuracy", "pretrain_eval_loss", "pretrain_eval_accuracy",
-    ]
-    out: dict = {}
-    for key in numeric_keys:
-        values = [m[key] for m in client_metrics.values() if isinstance(m, dict) and m.get(key) is not None]
-        if values:
-            out[f"avg_{key}"] = sum(values) / len(values)
-    payload_values = [
-        m["payload_bytes"] for m in client_metrics.values()
->>>>>>> 6ead4d46ee5e453f3da81d12880e768d91402540
         if isinstance(m, dict) and m.get("payload_bytes") is not None
     ]
     if payload_values:
@@ -484,13 +471,9 @@ class RoomManager:
                 }
 
             rnd.status = RoundStatus.AGGREGATING
-<<<<<<< HEAD
             strategy = get_strategy(
                 room.agg_config.strategy, byzantine_f=room.agg_config.byzantine_f
             )
-=======
-            strategy = get_strategy(room.agg_config.strategy, byzantine_f=room.agg_config.byzantine_f)
->>>>>>> 6ead4d46ee5e453f3da81d12880e768d91402540
             agg_t0 = time.perf_counter()
             new_state = strategy.aggregate(list(rnd.submissions.values()))
             aggregation_seconds = time.perf_counter() - agg_t0
@@ -516,12 +499,8 @@ class RoomManager:
                 "round": rnd.round_number,
                 "new_version": new_version,
                 "strategy": room.agg_config.strategy,
-<<<<<<< HEAD
                 "checkpoint_uri": checkpoint_uri
                 or f"memory://{room.room_id}/v{new_version}",
-=======
-                "checkpoint_uri": checkpoint_uri or f"memory://{room.room_id}/v{new_version}",
->>>>>>> 6ead4d46ee5e453f3da81d12880e768d91402540
                 "n_completed": len(rnd.submissions),
                 "n_selected": len(rnd.selected),
                 "n_dropped": len(dropped),
