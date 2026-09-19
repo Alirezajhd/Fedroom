@@ -13,6 +13,8 @@ NAMESPACE=fedroom
 JOB_MANIFEST=deployments/kubernetes/04-client-job.yaml
 URL=${FEDROOM_URL:-http://localhost:8000}
 
+mkdir -p experiments/results
+
 for N in $LEVELS; do
   echo "=== Deploying $N client pod(s) ==="
   sed -e "s/completions: [0-9]*/completions: ${N}/" \

@@ -5,16 +5,26 @@ Fedroom CLI ("TUI/CLI interaction").
     fedroom room list
     fedroom room status fashion-room
     fedroom client join fashion-room --config configs/clients/client-a.yaml
+    fedroom client train fashion-room --config configs/clients/client-a.yaml --rounds 5
     fedroom client leave fashion-room --client-id client-a
     fedroom train start fashion-room --rounds 5
     fedroom train status fashion-room
     fedroom model list fashion-room
     fedroom infer fashion-room --version latest --config configs/clients/client-a.yaml
 
+IMPORTANT: `client join` only registers a client -- it does not train.
+`client train` (or an equivalent long-running process, e.g.
+`python -m client.agent <config> --rounds N`, or a Docker Compose client
+container) is what actually polls for selection, downloads the model,
+trains locally, and submits. Starting a round (`train start`) with no
+client actively training will sit "selected" until the round times out,
+fail quorum, and mark every selected client "dropped".
+
 Talks to the coordinator purely over HTTP, so it works identically against a
 locally running `uvicorn coordinator.app:app` or a Kubernetes-deployed
 coordinator (point --url at the service).
 """
+
 from __future__ import annotations
 
 import json
@@ -52,8 +62,10 @@ def _url(base: str, path: str) -> str:
 
 
 @room_app.command("create")
-def room_create(config: str = typer.Option(..., help="Path to room YAML config"),
-                 url: str = typer.Option(DEFAULT_URL, "--url")):
+def room_create(
+    config: str = typer.Option(..., help="Path to room YAML config"),
+    url: str = typer.Option(DEFAULT_URL, "--url"),
+):
     with open(config) as f:
         cfg = yaml.safe_load(f)
 
@@ -64,7 +76,9 @@ def room_create(config: str = typer.Option(..., help="Path to room YAML config")
         param_shapes = model_contract_shapes(model)
         initial_state = torch_state_to_numpy(model)
     except ImportError:
-        console.print("[yellow]torch not installed; using a tiny synthetic contract[/yellow]")
+        console.print(
+            "[yellow]torch not installed; using a tiny synthetic contract[/yellow]"
+        )
         import numpy as np
 
         initial_state = {"w": np.zeros((4,), dtype="float32")}
@@ -99,8 +113,13 @@ def room_list(url: str = typer.Option(DEFAULT_URL, "--url")):
     for col in ["room_id", "state", "current_round", "current_version", "clients"]:
         table.add_column(col)
     for r in rooms:
-        table.add_row(r["room_id"], r["state"], str(r["current_round"]),
-                       str(r["current_version"]), str(len(r["clients"])))
+        table.add_row(
+            r["room_id"],
+            r["state"],
+            str(r["current_round"]),
+            str(r["current_version"]),
+            str(len(r["clients"])),
+        )
     console.print(table)
 
 
@@ -122,32 +141,97 @@ def room_stop(room_id: str, url: str = typer.Option(DEFAULT_URL, "--url")):
 
 
 @client_app.command("join")
-def client_join(room_id: str, config: str = typer.Option(..., help="Client YAML config"),
-                 url: str = typer.Option(None, "--url", help="Override coordinator_url from the config")):
+def client_join(
+    room_id: str,
+    config: str = typer.Option(..., help="Client YAML config"),
+    url: str = typer.Option(
+        None, "--url", help="Override coordinator_url from the config"
+    ),
+):
     cfg = ClientConfig.from_yaml(config)
     cfg.room_id = room_id
     if url:
         cfg.coordinator_url = url
     agent = ClientAgent(cfg)
     console.print(agent.join())
+    console.print(
+        "[dim]Joining only registers the client -- it does not train by itself. "
+        "Run `fedroom client train` (or `client.agent`) to actually participate "
+        "in rounds, or the room will time out waiting for this client.[/dim]"
+    )
 
 
 @client_app.command("leave")
-def client_leave(room_id: str, client_id: str = typer.Option(...),
-                  url: str = typer.Option(DEFAULT_URL, "--url")):
-    resp = requests.post(_url(url, f"/rooms/{room_id}/leave"), json={"client_id": client_id}, timeout=10)
+def client_leave(
+    room_id: str,
+    client_id: str = typer.Option(...),
+    url: str = typer.Option(DEFAULT_URL, "--url"),
+):
+    resp = requests.post(
+        _url(url, f"/rooms/{room_id}/leave"), json={"client_id": client_id}, timeout=10
+    )
     resp.raise_for_status()
     console.print(f"[yellow]Client '{client_id}' left room '{room_id}'[/yellow]")
 
 
+@client_app.command("train")
+def client_train(
+    room_id: str,
+    config: str = typer.Option(..., help="Client YAML config"),
+    rounds: int = typer.Option(1, help="Number of rounds to participate in"),
+    url: str = typer.Option(
+        None, "--url", help="Override coordinator_url from the config"
+    ),
+):
+    """Join (if needed) and actually run this client's training loop.
+
+    This is the command that makes rounds progress. `client join` alone
+    only registers the client with the coordinator -- nothing then polls
+    for selection, downloads the model, trains, and submits on its behalf.
+    Without this (or an equivalent process, e.g. `python -m client.agent
+    <config> --rounds N`, or a running Docker Compose client container),
+    a started round will sit "selected" with zero submissions until
+    `round_timeout_seconds` elapses, fail quorum, and mark the client
+    "dropped" -- which repeats on every subsequent `train start` call.
+    """
+    cfg = ClientConfig.from_yaml(config)
+    cfg.room_id = room_id
+    if url:
+        cfg.coordinator_url = url
+    agent = ClientAgent(cfg)
+    agent.join()
+    console.print(
+        f"[cyan]Training for up to {rounds} round(s)... "
+        f"(polling every {cfg.poll_interval_seconds}s until selected)[/cyan]"
+    )
+    results = agent.run_rounds(rounds)
+    if not results:
+        console.print(
+            "[red]Completed 0 rounds -- the room may not be started yet "
+            "(`train start`), or this client never got selected before "
+            "giving up. Check `room status` for the room's state.[/red]"
+        )
+        raise typer.Exit(1)
+    console.print(f"[green]Completed {len(results)}/{rounds} round(s)[/green]")
+    for r in results:
+        console.print(r)
+
+
 @train_app.command("start")
-def train_start(room_id: str, rounds: int = typer.Option(5),
-                 url: str = typer.Option(DEFAULT_URL, "--url")):
-    resp = requests.post(_url(url, f"/rooms/{room_id}/start"), json={"rounds": rounds}, timeout=10)
+def train_start(
+    room_id: str,
+    rounds: int = typer.Option(5),
+    url: str = typer.Option(DEFAULT_URL, "--url"),
+):
+    resp = requests.post(
+        _url(url, f"/rooms/{room_id}/start"), json={"rounds": rounds}, timeout=10
+    )
     if resp.status_code >= 400:
         console.print(f"[red]Error {resp.status_code}: {resp.text}[/red]")
         raise typer.Exit(1)
-    console.print(f"[green]Training started for '{room_id}' (target {rounds} rounds)[/green]")
+    console.print(
+        f"[green]Training started for '{room_id}' (target {rounds} rounds)[/green]"
+    )
 
 
 @train_app.command("status")
@@ -178,10 +262,16 @@ def model_list(room_id: str, url: str = typer.Option(DEFAULT_URL, "--url")):
 
 
 @app.command("infer")
-def infer(room_id: str,
-          config: str = typer.Option(..., help="Client YAML config to use for local inference"),
-          version: str = typer.Option("latest"),
-          url: str = typer.Option(None, "--url", help="Override coordinator_url from the config")):
+def infer(
+    room_id: str,
+    config: str = typer.Option(
+        ..., help="Client YAML config to use for local inference"
+    ),
+    version: str = typer.Option("latest"),
+    url: str = typer.Option(
+        None, "--url", help="Override coordinator_url from the config"
+    ),
+):
     cfg = ClientConfig.from_yaml(config)
     cfg.room_id = room_id
     if url:

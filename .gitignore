@@ -12,3 +12,4 @@ venv/
 *.egg-info/
 .coverage
 htmlcov/
+nul

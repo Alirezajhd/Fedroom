@@ -10,6 +10,7 @@ comparable to the required "global task metric vs round" plot.
 This script assumes a coordinator is already running and creates a fresh
 room per configuration (so runs don't interfere with each other).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -17,10 +18,17 @@ import base64
 import io
 import json
 import os
+import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import numpy as np
 import requests
+
+# Allow running this script directly (`python experiments/run_noniid.py`)
+# without the project root already being on sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from client.agent import ClientAgent
 from client.config import ClientConfig
@@ -28,7 +36,14 @@ from client.model import build_model, model_contract_shapes, torch_state_to_nump
 from coordinator.codec import state_to_b64
 
 
-def create_room(url: str, room_id: str, strategy: str, n_clients: int, rounds: int, byzantine_f: int = 0):
+def create_room(
+    url: str,
+    room_id: str,
+    strategy: str,
+    n_clients: int,
+    rounds: int,
+    byzantine_f: int = 0,
+):
     try:
         model = build_model()
         param_shapes = model_contract_shapes(model)
@@ -39,12 +54,20 @@ def create_room(url: str, room_id: str, strategy: str, n_clients: int, rounds: i
 
     payload = {
         "room_id": room_id,
-        "model_contract": {"model_id": "fashion-cnn-v1", "framework": "pytorch",
-                            "param_shapes": param_shapes, "max_update_norm": None},
+        "model_contract": {
+            "model_id": "fashion-cnn-v1",
+            "framework": "pytorch",
+            "param_shapes": param_shapes,
+            "max_update_norm": None,
+        },
         "preprocessing_contract": "fmnist-normalize-v1",
         "aggregation": {
-            "strategy": strategy, "min_available_clients": n_clients, "min_fit_clients": n_clients,
-            "quorum": 0.6, "round_timeout_seconds": 60, "byzantine_f": byzantine_f,
+            "strategy": strategy,
+            "min_available_clients": n_clients,
+            "min_fit_clients": n_clients,
+            "quorum": 0.6,
+            "round_timeout_seconds": 120,
+            "byzantine_f": byzantine_f,
         },
         "target_rounds": rounds,
         "initial_state_b64": state_to_b64(initial_state),
@@ -54,23 +77,42 @@ def create_room(url: str, room_id: str, strategy: str, n_clients: int, rounds: i
     return resp.json()
 
 
-def run_condition(url: str, room_id: str, strategy: str, scheme: str, n_clients: int, rounds: int):
+def run_condition(
+    url: str, room_id: str, strategy: str, scheme: str, n_clients: int, rounds: int
+):
     create_room(url, room_id, strategy, n_clients, rounds)
-    requests.post(f"{url.rstrip('/')}/rooms/{room_id}/start", json={"rounds": rounds}, timeout=10)
 
+    # Clients must join BEFORE the room is started: `min_available_clients`
+    # is checked at start time, so starting first (with zero members)
+    # always fails -- and a client that joins mid-round only becomes
+    # eligible for the *next* round, not the one already running. Getting
+    # this ordering wrong used to make every client poll for selection for
+    # the full `max_wait_seconds` (300s) before the room's first round ever
+    # actually started.
     agents = []
     for i in range(n_clients):
         cfg = ClientConfig(
-            client_id=f"{room_id}-c{i}", coordinator_url=url, room_id=room_id,
-            n_clients=n_clients, partition_scheme=scheme, samples_per_client=300,
+            client_id=f"{room_id}-c{i}",
+            coordinator_url=url,
+            room_id=room_id,
+            n_clients=n_clients,
+            partition_scheme=scheme,
+            samples_per_client=300,
         )
         agent = ClientAgent(cfg)
         agent.join()
         agents.append(agent)
 
+    resp = requests.post(
+        f"{url.rstrip('/')}/rooms/{room_id}/start", json={"rounds": rounds}, timeout=10
+    )
+    resp.raise_for_status()
+
     for r in range(rounds):
-        for agent in agents:
-            agent.train_once()
+        # Run all clients' selection-wait/train/submit concurrently so they
+        # don't serialize behind each other within the same round.
+        with ThreadPoolExecutor(max_workers=n_clients) as pool:
+            list(pool.map(lambda a: a.train_once(), agents))
         # give the background finalizer a moment, then explicitly advance
         time.sleep(2.5)
         requests.post(f"{url.rstrip('/')}/rooms/{room_id}/next-round", timeout=10)
@@ -97,8 +139,14 @@ def main():
     for name, cond in conditions.items():
         room_id = f"exp-{name}-{int(time.time())}"
         print(f"=== {name} (room={room_id}) ===")
-        results[name] = run_condition(args.url, room_id, cond["strategy"], cond["scheme"],
-                                       args.n_clients, args.rounds)
+        results[name] = run_condition(
+            args.url,
+            room_id,
+            cond["strategy"],
+            cond["scheme"],
+            args.n_clients,
+            args.rounds,
+        )
 
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     with open(args.out, "w") as f:

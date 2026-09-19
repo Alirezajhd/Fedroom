@@ -7,6 +7,7 @@ unit-tested deterministically with an injected clock, in-memory, with no
 network or database involved. `coordinator/app.py` wires this class to HTTP
 endpoints and to the storage/tracking backends.
 """
+
 from __future__ import annotations
 
 import enum
@@ -34,13 +35,13 @@ from strategies.robust import get_strategy
 # Enums / small value objects
 # --------------------------------------------------------------------------- #
 class ClientStatus(str, enum.Enum):
-    JOINED = "joined"          # registered, not yet eligible for this round
-    ELIGIBLE = "eligible"      # may be selected starting next round
-    SELECTED = "selected"      # chosen for the in-flight round
-    COMPLETED = "completed"    # submitted a valid update this round
-    FAILED = "failed"          # submitted an invalid update
-    DROPPED = "dropped"        # selected but did not respond before timeout
-    LEFT = "left"              # explicitly left the room
+    JOINED = "joined"  # registered, not yet eligible for this round
+    ELIGIBLE = "eligible"  # may be selected starting next round
+    SELECTED = "selected"  # chosen for the in-flight round
+    COMPLETED = "completed"  # submitted a valid update this round
+    FAILED = "failed"  # submitted an invalid update
+    DROPPED = "dropped"  # selected but did not respond before timeout
+    LEFT = "left"  # explicitly left the room
 
 
 class RoundStatus(str, enum.Enum):
@@ -63,9 +64,9 @@ class AggregationConfig:
     strategy: str = "fedavg"
     min_available_clients: int = 1
     min_fit_clients: int = 1
-    quorum: float = 1.0                 # fraction of *selected* clients required
+    quorum: float = 1.0  # fraction of *selected* clients required
     round_timeout_seconds: float = 120.0
-    byzantine_f: int = 0                 # assumed max malicious clients per round (robust strategies)
+    byzantine_f: int = 0  # assumed max malicious clients per round (robust strategies)
 
 
 @dataclass
@@ -86,6 +87,14 @@ class RoundState:
     timeout_seconds: float
     submissions: Dict[str, ClientUpdate] = field(default_factory=dict)
     rejections: Dict[str, str] = field(default_factory=dict)
+    # Per-client metrics reported alongside each update: local_training_seconds,
+    # download_seconds, upload_seconds, payload_bytes, train_loss,
+    # train_accuracy, pretrain_eval_loss, pretrain_eval_accuracy (all optional
+    # -- see client/agent.py). Kept here (not just in the SQL audit log) so
+    # `maybe_finalize_round` can aggregate them into the round summary that
+    # gets logged to MLflow, satisfying the assignment's "Timing" and
+    # "Client" metric-group requirements.
+    client_metrics: Dict[str, dict] = field(default_factory=dict)
     status: RoundStatus = RoundStatus.RUNNING
 
 
@@ -121,6 +130,57 @@ class Room:
 # --------------------------------------------------------------------------- #
 # RoomManager
 # --------------------------------------------------------------------------- #
+def _summarize_client_metrics(client_metrics: Dict[str, dict]) -> dict:
+    """Average the optional per-client metrics reported alongside each
+    update into round-level numbers for MLflow/the dashboard.
+
+    Reported keys (all optional -- see client/agent.py):
+      - selection_wait_seconds, local_training_seconds, download_seconds,
+        upload_seconds: timing (upload_seconds is measured server-side --
+        see coordinator/app.py::submit_update -- since a client cannot know
+        its own upload duration before the request finishes sending)
+      - payload_bytes: size of the update sent over the wire
+      - train_loss, train_accuracy: this client's own post-training metrics
+      - pretrain_eval_loss, pretrain_eval_accuracy: this client's evaluation
+        of the CURRENT global model (before local training) on its own
+        held-out split -- a federated-evaluation proxy for "global task
+        metric", since the coordinator never holds a labeled validation set
+        itself (that would mean it holds training-style data, which
+        contradicts the platform's data-locality design). Averaged (mean,
+        not weighted -- these are per-client quality signals, not
+        contributions to the model) across responding clients, this
+        approximates how well the *previous* global checkpoint generalizes.
+    """
+    numeric_keys = [
+        "local_training_seconds",
+        "download_seconds",
+        "upload_seconds",
+        "selection_wait_seconds",
+        "train_loss",
+        "train_accuracy",
+        "pretrain_eval_loss",
+        "pretrain_eval_accuracy",
+    ]
+    out: dict = {}
+    for key in numeric_keys:
+        values = [
+            m[key]
+            for m in client_metrics.values()
+            if isinstance(m, dict) and m.get(key) is not None
+        ]
+        if values:
+            out[f"avg_{key}"] = sum(values) / len(values)
+    payload_values = [
+        m["payload_bytes"]
+        for m in client_metrics.values()
+        if isinstance(m, dict) and m.get("payload_bytes") is not None
+    ]
+    if payload_values:
+        out["total_payload_bytes"] = sum(payload_values)
+        out["avg_payload_bytes"] = sum(payload_values) / len(payload_values)
+    return out
+
+
 class RoomManager:
     """Thread-safe, in-process registry of rooms.
 
@@ -191,10 +251,32 @@ class RoomManager:
             return room
 
     # ---- client membership ------------------------------------------------ #
-    def join_client(self, room_id: str, client_id: str, capabilities: dict) -> ClientRecord:
-        """A client joining during round r becomes eligible no earlier than r+1."""
+    def join_client(
+        self, room_id: str, client_id: str, capabilities: dict
+    ) -> ClientRecord:
+        """A client joining during round r becomes eligible no earlier than r+1.
+
+        Idempotent for an already-known, still-participating client: a
+        client re-announcing itself (a reconnecting agent, a CLI
+        convenience call before training, retried network requests, etc.)
+        must NOT be treated as brand new. Doing so used to reset the
+        client's status/eligibility unconditionally -- including while it
+        was SELECTED in an in-flight round -- which silently knocked it
+        back out of that round's selection and left callers polling for a
+        "selected" status that would never come back (the round would then
+        time out with zero responses). Only a client who explicitly LEFT
+        gets a fresh record on rejoin.
+        """
         with self._lock:
             room = self.get_room(room_id)
+            existing = room.clients.get(client_id)
+            if existing is not None and existing.status != ClientStatus.LEFT:
+                existing.capabilities = capabilities
+                room.log(
+                    "client_rejoined", client_id=client_id, status=existing.status.value
+                )
+                return existing
+
             # A client joining while round r is in flight becomes eligible no
             # earlier than r+1; joining with no round active makes it
             # eligible for the very next round to be started.
@@ -205,19 +287,25 @@ class RoomManager:
             record = ClientRecord(
                 client_id=client_id,
                 capabilities=capabilities,
-                status=ClientStatus.ELIGIBLE if eligible_from <= room.current_round + 1 else ClientStatus.JOINED,
+                status=ClientStatus.ELIGIBLE
+                if eligible_from <= room.current_round + 1
+                else ClientStatus.JOINED,
                 eligible_from_round=eligible_from,
                 joined_at=self._clock(),
             )
             room.clients[client_id] = record
-            room.log("client_joined", client_id=client_id, eligible_from_round=eligible_from)
+            room.log(
+                "client_joined", client_id=client_id, eligible_from_round=eligible_from
+            )
             return record
 
     def leave_client(self, room_id: str, client_id: str) -> None:
         with self._lock:
             room = self.get_room(room_id)
             if client_id not in room.clients:
-                raise KeyError(f"Client '{client_id}' is not a member of room '{room_id}'")
+                raise KeyError(
+                    f"Client '{client_id}' is not a member of room '{room_id}'"
+                )
             record = room.clients[client_id]
             was_selected = (
                 room.active_round is not None
@@ -225,7 +313,9 @@ class RoomManager:
                 and client_id not in room.active_round.submissions
             )
             record.status = ClientStatus.LEFT
-            room.log("client_left", client_id=client_id, was_selected_unfinished=was_selected)
+            room.log(
+                "client_left", client_id=client_id, was_selected_unfinished=was_selected
+            )
             # Dropout accounting happens lazily at finalize-time via timeout,
             # so we do not force-fail the round here; this keeps behavior
             # identical whether a client stops cleanly or simply stops
@@ -237,7 +327,10 @@ class RoomManager:
             room = self.get_room(room_id)
             if room.state != RoomState.ACTIVE:
                 raise ValueError(f"Room '{room_id}' is not active (state={room.state})")
-            if room.active_round is not None and room.active_round.status == RoundStatus.RUNNING:
+            if (
+                room.active_round is not None
+                and room.active_round.status == RoundStatus.RUNNING
+            ):
                 raise ValueError("A round is already in progress")
 
             # Promote clients whose eligibility has kicked in. A client may
@@ -281,6 +374,7 @@ class RoomManager:
         state: StateDict,
         n_samples: int,
         base_version: int,
+        client_metrics: Optional[dict] = None,
     ) -> None:
         with self._lock:
             room = self.get_room(room_id)
@@ -288,7 +382,9 @@ class RoomManager:
             if rnd is None or rnd.status != RoundStatus.RUNNING:
                 raise ValueError("No round is currently accepting updates")
             if client_id not in rnd.selected:
-                raise PermissionError(f"Client '{client_id}' was not selected for this round")
+                raise PermissionError(
+                    f"Client '{client_id}' was not selected for this round"
+                )
             if client_id in rnd.submissions or client_id in rnd.rejections:
                 raise ValueError(f"Client '{client_id}' already submitted this round")
 
@@ -301,16 +397,25 @@ class RoomManager:
                 validate_update(state, room.contract)
                 if n_samples <= 0:
                     raise ValueError("n_samples must be > 0")
-            except (ContractError, NonFiniteUpdateError, OversizedUpdateError,
-                    StaleUpdateError, ValueError) as exc:
+            except (
+                ContractError,
+                NonFiniteUpdateError,
+                OversizedUpdateError,
+                StaleUpdateError,
+                ValueError,
+            ) as exc:
                 rnd.rejections[client_id] = str(exc)
                 room.clients[client_id].status = ClientStatus.FAILED
                 room.log("update_rejected", client_id=client_id, reason=str(exc))
                 raise
 
             rnd.submissions[client_id] = ClientUpdate(
-                client_id=client_id, n_samples=n_samples, state=state, base_version=base_version
+                client_id=client_id,
+                n_samples=n_samples,
+                state=state,
+                base_version=base_version,
             )
+            rnd.client_metrics[client_id] = client_metrics or {}
             room.clients[client_id].status = ClientStatus.COMPLETED
             room.log("update_accepted", client_id=client_id, n_samples=n_samples)
 
@@ -342,7 +447,8 @@ class RoomManager:
 
             # Anyone selected but silent by now is a dropout.
             dropped = [
-                cid for cid in rnd.selected
+                cid
+                for cid in rnd.selected
                 if cid not in rnd.submissions and cid not in rnd.rejections
             ]
             for cid in dropped:
@@ -365,8 +471,12 @@ class RoomManager:
                 }
 
             rnd.status = RoundStatus.AGGREGATING
-            strategy = get_strategy(room.agg_config.strategy, byzantine_f=room.agg_config.byzantine_f)
+            strategy = get_strategy(
+                room.agg_config.strategy, byzantine_f=room.agg_config.byzantine_f
+            )
+            agg_t0 = time.perf_counter()
             new_state = strategy.aggregate(list(rnd.submissions.values()))
+            aggregation_seconds = time.perf_counter() - agg_t0
             new_version = room.current_version + 1
             room.global_state = new_state
             room.current_version = new_version
@@ -388,11 +498,16 @@ class RoomManager:
                 "status": "aggregated",
                 "round": rnd.round_number,
                 "new_version": new_version,
+                "strategy": room.agg_config.strategy,
+                "checkpoint_uri": checkpoint_uri
+                or f"memory://{room.room_id}/v{new_version}",
                 "n_completed": len(rnd.submissions),
                 "n_selected": len(rnd.selected),
                 "n_dropped": len(dropped),
                 "n_rejected": len(rnd.rejections),
                 "duration_seconds": elapsed,
+                "aggregation_seconds": aggregation_seconds,
+                **_summarize_client_metrics(rnd.client_metrics),
             }
             if self._on_metrics is not None:
                 self._on_metrics(room, summary)
@@ -415,10 +530,15 @@ class RoomManager:
                 "current_version": room.current_version,
                 "target_rounds": room.target_rounds,
                 "clients": {
-                    cid: {"status": c.status.value, "eligible_from_round": c.eligible_from_round}
+                    cid: {
+                        "status": c.status.value,
+                        "eligible_from_round": c.eligible_from_round,
+                    }
                     for cid, c in room.clients.items()
                 },
-                "active_round": None if rnd is None else {
+                "active_round": None
+                if rnd is None
+                else {
                     "round_number": rnd.round_number,
                     "expected_version": rnd.expected_version,
                     "selected": rnd.selected,

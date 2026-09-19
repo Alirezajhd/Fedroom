@@ -13,6 +13,7 @@ This module has a CLI entry point (`python -m client.agent ...`) but is also
 used directly by `experiments/run_scalability.py` (via Ray actors) and by
 `tui/cli.py`.
 """
+
 from __future__ import annotations
 
 import logging
@@ -24,11 +25,18 @@ import requests
 
 from client.config import ClientConfig
 from client.data import partition_for_client
-from client.model import build_model, model_contract_shapes, numpy_state_to_torch, torch_state_to_numpy
+from client.model import (
+    build_model,
+    model_contract_shapes,
+    numpy_state_to_torch,
+    torch_state_to_numpy,
+)
 from coordinator.codec import b64_to_state, state_to_b64
 
 logger = logging.getLogger("fedroom.client")
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+)
 
 
 class ClientAgent:
@@ -43,11 +51,19 @@ class ClientAgent:
     def join(self) -> dict:
         resp = self.session.post(
             self._url(f"/rooms/{self.cfg.room_id}/join"),
-            json={"client_id": self.cfg.client_id, "capabilities": self.cfg.capabilities},
+            json={
+                "client_id": self.cfg.client_id,
+                "capabilities": self.cfg.capabilities,
+            },
             timeout=10,
         )
         resp.raise_for_status()
-        logger.info("client %s joined room %s: %s", self.cfg.client_id, self.cfg.room_id, resp.json())
+        logger.info(
+            "client %s joined room %s: %s",
+            self.cfg.client_id,
+            self.cfg.room_id,
+            resp.json(),
+        )
         return resp.json()
 
     def leave(self) -> dict:
@@ -89,6 +105,22 @@ class ClientAgent:
             import torch
             import torch.nn as nn
 
+            # When many simulated clients train concurrently as threads in a
+            # single process (the local/no-Ray path in
+            # experiments/run_scalability.py and run_noniid.py), PyTorch's
+            # default intra-op parallelism has each thread try to claim ALL
+            # CPU cores for its own BLAS ops. With N concurrent clients that
+            # oversubscribes the machine N-fold, causing wall-clock time per
+            # round to blow up non-linearly with client count (observed:
+            # ~35s/round at 2 concurrent simulated clients vs. ~170s/round
+            # at 4, on the same hardware) -- easily exceeding
+            # `round_timeout_seconds` and causing every late submission to
+            # be rejected with "No round is currently accepting updates".
+            # Capping each client to a single thread here keeps wall-clock
+            # scaling roughly linear in the number of concurrent clients
+            # instead of quadratic-or-worse.
+            torch.set_num_threads(1)
+
             model = build_model()
             numpy_state_to_torch(global_state, model=model)
 
@@ -105,7 +137,7 @@ class ClientAgent:
             for _ in range(self.cfg.local_epochs):
                 perm = torch.randperm(n)
                 for start in range(0, n, bs):
-                    idx = perm[start:start + bs]
+                    idx = perm[start : start + bs]
                     xb, yb = x[idx], y[idx]
                     opt.zero_grad()
                     logits = model(xb)
@@ -130,18 +162,28 @@ class ClientAgent:
             # that only care about coordinator throughput, not model quality).
             t0 = time.time()
             noisy_state = {
-                k: (v + np.random.default_rng(hash(self.cfg.client_id) % (2**32)).normal(
-                    0, 1e-3, size=v.shape).astype(v.dtype))
+                k: (
+                    v
+                    + np.random.default_rng(hash(self.cfg.client_id) % (2**32))
+                    .normal(0, 1e-3, size=v.shape)
+                    .astype(v.dtype)
+                )
                 for k, v in global_state.items()
             }
             elapsed = time.time() - t0
-            metrics = {"train_loss": None, "train_accuracy": None,
-                       "local_training_seconds": elapsed, "n_samples": n_samples,
-                       "note": "torch not installed; numpy no-op fallback update used"}
+            metrics = {
+                "train_loss": None,
+                "train_accuracy": None,
+                "local_training_seconds": elapsed,
+                "n_samples": n_samples,
+                "note": "torch not installed; numpy no-op fallback update used",
+            }
             return noisy_state, n_samples, metrics
 
     # ------------------------------------------------------------------ #
-    def train_once(self, wait_for_selection: bool = True, max_wait_seconds: float = 300.0) -> Optional[dict]:
+    def train_once(
+        self, wait_for_selection: bool = True, max_wait_seconds: float = 300.0
+    ) -> Optional[dict]:
         """Wait until this client is selected in the active round, train, and
         submit. Returns the submission response, or None if the room stopped
         or no round selected this client within `max_wait_seconds` (e.g. a
@@ -156,7 +198,11 @@ class ClientAgent:
                 return None
             active = st.get("active_round")
             client_state = st["clients"].get(self.cfg.client_id, {}).get("status")
-            if active and client_state == "selected" and self.cfg.client_id in active["selected"]:
+            if (
+                active
+                and client_state == "selected"
+                and self.cfg.client_id in active["selected"]
+            ):
                 break
             if not wait_for_selection:
                 return None
@@ -165,12 +211,15 @@ class ClientAgent:
                     "client %s gave up waiting for selection after %.0fs "
                     "(no active round included this client -- has the round "
                     "failed quorum and not yet been restarted?)",
-                    self.cfg.client_id, max_wait_seconds,
+                    self.cfg.client_id,
+                    max_wait_seconds,
                 )
                 return None
             time.sleep(self.cfg.poll_interval_seconds)
 
-        model_resp = self.session.get(self._url(f"/rooms/{self.cfg.room_id}/model"), timeout=30)
+        model_resp = self.session.get(
+            self._url(f"/rooms/{self.cfg.room_id}/model"), timeout=30
+        )
         model_resp.raise_for_status()
         payload = model_resp.json()
         base_version = payload["version"]
@@ -217,14 +266,15 @@ class ClientAgent:
             version_int = int(version)
 
         ck_resp = self.session.get(
-            self._url(f"/rooms/{self.cfg.room_id}/checkpoints/{version_int}"), timeout=30
+            self._url(f"/rooms/{self.cfg.room_id}/checkpoints/{version_int}"),
+            timeout=30,
         )
         ck_resp.raise_for_status()
         payload = ck_resp.json()
         state = b64_to_state(payload["state_b64"])
 
         partition = self._load_partition()
-        sample_image = partition.images[sample_index: sample_index + 1]
+        sample_image = partition.images[sample_index : sample_index + 1]
         true_label = int(partition.labels[sample_index])
 
         try:
@@ -241,8 +291,11 @@ class ClientAgent:
 
         self.session.post(
             self._url(f"/rooms/{self.cfg.room_id}/inference-log"),
-            json={"client_id": self.cfg.client_id, "version": version_int,
-                  "note": f"predicted={pred} true={true_label}"},
+            json={
+                "client_id": self.cfg.client_id,
+                "version": version_int,
+                "note": f"predicted={pred} true={true_label}",
+            },
             timeout=10,
         )
         return {"version": version_int, "predicted": pred, "true_label": true_label}
@@ -255,7 +308,9 @@ def _main():
     parser = argparse.ArgumentParser(description="Fedroom client agent")
     parser.add_argument("config", help="Path to client YAML config")
     parser.add_argument("--rounds", type=int, default=1)
-    parser.add_argument("--mode", choices=["train", "infer", "join", "leave"], default="train")
+    parser.add_argument(
+        "--mode", choices=["train", "infer", "join", "leave"], default="train"
+    )
     args = parser.parse_args()
 
     cfg = ClientConfig.from_yaml(args.config)

@@ -30,7 +30,9 @@ def make_manager(clock=None, checkpoints=None, metrics=None):
     def on_metrics(room, summary):
         metrics.append(summary)
 
-    return RoomManager(clock=clock or FakeClock(), on_checkpoint=on_checkpoint, on_metrics=on_metrics)
+    return RoomManager(
+        clock=clock or FakeClock(), on_checkpoint=on_checkpoint, on_metrics=on_metrics
+    )
 
 
 def make_contract():
@@ -43,7 +45,10 @@ def test_single_client_room_behaves_like_managed_local_training():
     mgr = make_manager()
     contract = make_contract()
     mgr.create_room(
-        "room1", contract, "preproc-v1", AggregationConfig(min_available_clients=1, min_fit_clients=1),
+        "room1",
+        contract,
+        "preproc-v1",
+        AggregationConfig(min_available_clients=1, min_fit_clients=1),
         initial_state={"w": np.array([0.0, 0.0])},
     )
     mgr.start_room("room1")
@@ -51,7 +56,9 @@ def test_single_client_room_behaves_like_managed_local_training():
     rnd = mgr.start_round("room1")
     assert rnd.selected == ["alice"]
 
-    mgr.submit_update("room1", "alice", {"w": np.array([2.0, 4.0])}, n_samples=10, base_version=0)
+    mgr.submit_update(
+        "room1", "alice", {"w": np.array([2.0, 4.0])}, n_samples=10, base_version=0
+    )
     summary = mgr.maybe_finalize_round("room1")
     assert summary["status"] == "aggregated"
     assert summary["new_version"] == 1
@@ -65,7 +72,10 @@ def test_multi_client_weighted_aggregation():
     mgr = make_manager()
     contract = make_contract()
     mgr.create_room(
-        "room2", contract, "preproc-v1", AggregationConfig(min_available_clients=2, quorum=1.0),
+        "room2",
+        contract,
+        "preproc-v1",
+        AggregationConfig(min_available_clients=2, quorum=1.0),
         initial_state={"w": np.array([0.0, 0.0])},
     )
     mgr.start_room("room2")
@@ -73,13 +83,19 @@ def test_multi_client_weighted_aggregation():
     mgr.join_client("room2", "bob", {})
     mgr.start_round("room2")
 
-    mgr.submit_update("room2", "alice", {"w": np.array([1.0, 1.0])}, n_samples=100, base_version=0)
-    mgr.submit_update("room2", "bob", {"w": np.array([5.0, 5.0])}, n_samples=300, base_version=0)
+    mgr.submit_update(
+        "room2", "alice", {"w": np.array([1.0, 1.0])}, n_samples=100, base_version=0
+    )
+    mgr.submit_update(
+        "room2", "bob", {"w": np.array([5.0, 5.0])}, n_samples=300, base_version=0
+    )
     summary = mgr.maybe_finalize_round("room2")
 
     assert summary["status"] == "aggregated"
     room = mgr.get_room("room2")
-    np.testing.assert_allclose(room.global_state["w"], [4.0, 4.0])  # 0.25*[1,1] + 0.75*[5,5]
+    np.testing.assert_allclose(
+        room.global_state["w"], [4.0, 4.0]
+    )  # 0.25*[1,1] + 0.75*[5,5]
 
 
 def test_client_joining_mid_round_is_eligible_next_round_not_current():
@@ -87,7 +103,10 @@ def test_client_joining_mid_round_is_eligible_next_round_not_current():
     mgr = make_manager(clock=clock)
     contract = make_contract()
     mgr.create_room(
-        "room3", contract, "p1", AggregationConfig(min_available_clients=1, quorum=1.0),
+        "room3",
+        contract,
+        "p1",
+        AggregationConfig(min_available_clients=1, quorum=1.0),
         initial_state={"w": np.array([0.0, 0.0])},
     )
     mgr.start_room("room3")
@@ -99,7 +118,9 @@ def test_client_joining_mid_round_is_eligible_next_round_not_current():
     assert rec.eligible_from_round == 2
     assert "bob" not in rnd.selected
 
-    mgr.submit_update("room3", "alice", {"w": np.array([1.0, 1.0])}, n_samples=1, base_version=0)
+    mgr.submit_update(
+        "room3", "alice", {"w": np.array([1.0, 1.0])}, n_samples=1, base_version=0
+    )
     mgr.maybe_finalize_round("room3")
 
     rnd2 = mgr.start_round("room3")  # round 2
@@ -111,8 +132,12 @@ def test_dropout_via_timeout_with_quorum_met_still_aggregates():
     mgr = make_manager(clock=clock)
     contract = make_contract()
     mgr.create_room(
-        "room4", contract, "p1",
-        AggregationConfig(min_available_clients=2, quorum=0.5, round_timeout_seconds=30.0),
+        "room4",
+        contract,
+        "p1",
+        AggregationConfig(
+            min_available_clients=2, quorum=0.5, round_timeout_seconds=30.0
+        ),
         initial_state={"w": np.array([0.0, 0.0])},
     )
     mgr.start_room("room4")
@@ -121,7 +146,9 @@ def test_dropout_via_timeout_with_quorum_met_still_aggregates():
     mgr.start_round("room4")
 
     # Only alice responds. Bob is a straggler/dropout.
-    mgr.submit_update("room4", "alice", {"w": np.array([2.0, 2.0])}, n_samples=5, base_version=0)
+    mgr.submit_update(
+        "room4", "alice", {"w": np.array([2.0, 2.0])}, n_samples=5, base_version=0
+    )
 
     # Not ready yet (bob hasn't responded, timeout hasn't elapsed).
     assert mgr.maybe_finalize_round("room4") is None
@@ -138,15 +165,21 @@ def test_round_fails_quorum_when_too_many_drop():
     mgr = make_manager(clock=clock)
     contract = make_contract()
     mgr.create_room(
-        "room5", contract, "p1",
-        AggregationConfig(min_available_clients=2, quorum=1.0, round_timeout_seconds=10.0),
+        "room5",
+        contract,
+        "p1",
+        AggregationConfig(
+            min_available_clients=2, quorum=1.0, round_timeout_seconds=10.0
+        ),
         initial_state={"w": np.array([0.0, 0.0])},
     )
     mgr.start_room("room5")
     mgr.join_client("room5", "alice", {})
     mgr.join_client("room5", "bob", {})
     mgr.start_round("room5")
-    mgr.submit_update("room5", "alice", {"w": np.array([1.0, 1.0])}, n_samples=1, base_version=0)
+    mgr.submit_update(
+        "room5", "alice", {"w": np.array([1.0, 1.0])}, n_samples=1, base_version=0
+    )
 
     clock.advance(11.0)
     summary = mgr.maybe_finalize_round("room5")
@@ -156,11 +189,54 @@ def test_round_fails_quorum_when_too_many_drop():
     assert room.active_round is None  # room can be re-tried
 
 
+def test_rejoining_an_already_selected_client_does_not_reset_its_selection():
+    """Regression test: join_client used to unconditionally overwrite an
+    existing client's record, including while it was SELECTED in an
+    in-flight round. A client (or a CLI convenience call) re-announcing
+    itself must not silently knock itself out of the round it's already
+    part of -- that left callers polling forever for a "selected" status
+    that would never return.
+    """
+    mgr = make_manager()
+    contract = make_contract()
+    mgr.create_room(
+        "rejoin-room",
+        contract,
+        "p1",
+        AggregationConfig(min_available_clients=1),
+        initial_state={"w": np.array([0.0, 0.0])},
+    )
+    mgr.start_room("rejoin-room")
+    mgr.join_client("rejoin-room", "alice", {})
+    rnd = mgr.start_round("rejoin-room")
+    assert rnd.selected == ["alice"]
+    assert mgr.get_room("rejoin-room").clients["alice"].status.value == "selected"
+
+    # alice's agent re-announces itself mid-round (e.g. a defensive
+    # `agent.join()` call before training starts).
+    mgr.join_client("rejoin-room", "alice", {"cpu_cores": 4})
+
+    room = mgr.get_room("rejoin-room")
+    assert room.clients["alice"].status.value == "selected"  # NOT reset to "joined"
+    assert room.clients["alice"].eligible_from_round == 1  # NOT bumped to round 2
+    assert "alice" in room.active_round.selected
+
+    # And alice can still submit successfully in this round.
+    mgr.submit_update(
+        "rejoin-room", "alice", {"w": np.array([1.0, 1.0])}, n_samples=1, base_version=0
+    )
+    summary = mgr.maybe_finalize_round("rejoin-room")
+    assert summary["status"] == "aggregated"
+
+
 def test_stale_update_is_rejected():
     mgr = make_manager()
     contract = make_contract()
     mgr.create_room(
-        "room6", contract, "p1", AggregationConfig(min_available_clients=1),
+        "room6",
+        contract,
+        "p1",
+        AggregationConfig(min_available_clients=1),
         initial_state={"w": np.array([0.0, 0.0])},
     )
     mgr.start_room("room6")
@@ -168,7 +244,9 @@ def test_stale_update_is_rejected():
     mgr.start_round("room6")
 
     with pytest.raises(ValueError, match="Update trained from version"):
-        mgr.submit_update("room6", "alice", {"w": np.array([1.0, 1.0])}, n_samples=1, base_version=99)
+        mgr.submit_update(
+            "room6", "alice", {"w": np.array([1.0, 1.0])}, n_samples=1, base_version=99
+        )
 
     assert mgr.get_room("room6").clients["alice"].status.value == "failed"
 
@@ -178,8 +256,12 @@ def test_incompatible_shape_update_is_rejected_and_room_continues():
     mgr = make_manager(clock=clock)
     contract = make_contract()
     mgr.create_room(
-        "room7", contract, "p1",
-        AggregationConfig(min_available_clients=2, quorum=0.5, round_timeout_seconds=5.0),
+        "room7",
+        contract,
+        "p1",
+        AggregationConfig(
+            min_available_clients=2, quorum=0.5, round_timeout_seconds=5.0
+        ),
         initial_state={"w": np.array([0.0, 0.0])},
     )
     mgr.start_room("room7")
@@ -188,10 +270,18 @@ def test_incompatible_shape_update_is_rejected_and_room_continues():
     mgr.start_round("room7")
 
     with pytest.raises(Exception):
-        mgr.submit_update("room7", "alice", {"w": np.array([1.0, 1.0, 1.0])}, n_samples=5, base_version=0)
+        mgr.submit_update(
+            "room7",
+            "alice",
+            {"w": np.array([1.0, 1.0, 1.0])},
+            n_samples=5,
+            base_version=0,
+        )
 
     # Bob is still fine and the room does not crash.
-    mgr.submit_update("room7", "bob", {"w": np.array([3.0, 3.0])}, n_samples=5, base_version=0)
+    mgr.submit_update(
+        "room7", "bob", {"w": np.array([3.0, 3.0])}, n_samples=5, base_version=0
+    )
     summary = mgr.maybe_finalize_round("room7")
     assert summary["status"] == "aggregated"
     assert summary["n_rejected"] == 1
@@ -203,8 +293,12 @@ def test_client_leave_does_not_crash_active_round():
     mgr = make_manager(clock=clock)
     contract = make_contract()
     mgr.create_room(
-        "room8", contract, "p1",
-        AggregationConfig(min_available_clients=2, quorum=0.5, round_timeout_seconds=5.0),
+        "room8",
+        contract,
+        "p1",
+        AggregationConfig(
+            min_available_clients=2, quorum=0.5, round_timeout_seconds=5.0
+        ),
         initial_state={"w": np.array([0.0, 0.0])},
     )
     mgr.start_room("room8")
@@ -213,7 +307,9 @@ def test_client_leave_does_not_crash_active_round():
     mgr.start_round("room8")
 
     mgr.leave_client("room8", "bob")  # bob leaves mid-round without submitting
-    mgr.submit_update("room8", "alice", {"w": np.array([9.0, 9.0])}, n_samples=1, base_version=0)
+    mgr.submit_update(
+        "room8", "alice", {"w": np.array([9.0, 9.0])}, n_samples=1, base_version=0
+    )
 
     clock.advance(6.0)
     summary = mgr.maybe_finalize_round("room8")

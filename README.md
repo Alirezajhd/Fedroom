@@ -17,13 +17,13 @@ dashboard (`/dashboard`, see §8b below).
 
 ## 1. System requirements
 
-* Docker + Docker Compose v2 (baseline deployment)
-* A Kubernetes cluster for the deployment/scalability experiments (`kind`
+- Docker + Docker Compose v2 (baseline deployment)
+- A Kubernetes cluster for the deployment/scalability experiments (`kind`
   is fine for a single-host baseline; note in your report that CPU/
   memory/disk/network are physically shared in that case)
-* Python 3.10+ if you want to run the CLI / experiment scripts from the
+- Python 3.10+ if you want to run the CLI / experiment scripts from the
   host instead of inside containers
-* [KubeRay operator](https://github.com/ray-project/kuberay) installed in
+- [KubeRay operator](https://github.com/ray-project/kuberay) installed in
   the cluster, only if you want to run the large (20-100 client)
   Ray-simulated scalability experiment on Kubernetes
   (`deployments/kubernetes/05-raycluster-and-driver.yaml`)
@@ -66,9 +66,9 @@ This builds and starts MinIO, MLflow, and the coordinator via Docker
 Compose, waits for the coordinator health check, and prints the service
 URLs:
 
-* Coordinator API: http://localhost:8000 (interactive docs at `/docs`)
-* MinIO console: http://localhost:9001 (`fedroomadmin` / `fedroomsecret`)
-* MLflow UI: http://localhost:5000
+- Coordinator API: http://localhost:8000 (interactive docs at `/docs`)
+- MinIO console: http://localhost:9001 (`fedroomadmin` / `fedroomsecret`)
+- MLflow UI: http://localhost:5000
 
 ## 4. Quick start: your first federation room
 
@@ -83,16 +83,23 @@ pip install -r requirements-client.txt   # includes CLI deps + torch for real tr
 # 1. Create a room from config (derives the model contract + initial weights)
 python -m tui.cli room create --config configs/rooms/fashion-room.yaml
 
-# 2. Client A joins and trains alone for the first round
+# 2. Client A joins and trains alone for the first round.
+#    IMPORTANT: `client join` only registers a client -- it does not train.
+#    `client train` is what actually polls for selection, downloads the
+#    model, trains locally, and submits. Skipping it is the #1 cause of
+#    "my round never progresses" (the round just times out with zero
+#    responses, fails quorum, and marks the client "dropped").
 python -m tui.cli client join fashion-room --config configs/clients/client-a.yaml
 python -m tui.cli train start fashion-room --rounds 5
-python -m client.agent configs/clients/client-a.yaml --rounds 1
+python -m tui.cli client train fashion-room --config configs/clients/client-a.yaml --rounds 1
 
 # 3. Clients B and C join WHILE round 1 is active -- they become eligible
 #    starting round 2, not round 1 (see docs/architecture.md / RoomManager)
 python -m tui.cli client join fashion-room --config configs/clients/client-b.yaml
 python -m tui.cli client join fashion-room --config configs/clients/client-c.yaml
 python -m tui.cli train advance fashion-room
+python -m tui.cli client train fashion-room --config configs/clients/client-b.yaml --rounds 1
+python -m tui.cli client train fashion-room --config configs/clients/client-c.yaml --rounds 1
 
 # 4. Inspect room/round/checkpoint status
 python -m tui.cli room status fashion-room
@@ -143,7 +150,8 @@ kubectl -n fedroom logs job/fedroom-scalability-driver -f
 ## 7. Experiments
 
 ```bash
-python -m pytest tests/ -v                                   # correctness + state machine (23 tests)
+python -m pytest tests/ -v                                   # correctness + state machine (25 tests)
+python experiments/verify_metrics.py --url http://localhost:8000  # confirms every spec-required metric is actually produced
 python experiments/run_scalability.py --levels 1,2,4,8        # local Ray/thread simulation
 python experiments/run_noniid.py                              # IID vs non-IID vs robust strategy
 python experiments/inject_failures.py                         # timeout/stale/NaN/oversized rejection
@@ -158,13 +166,13 @@ Results land in `experiments/results/` (JSON) and
 
 Set `aggregation.strategy` in a room config:
 
-| Strategy | Rule | Reference |
-|---|---|---|
-| `fedavg` | Weighted average by `n_samples` (default) | McMahan et al., AISTATS 2017 |
-| `trimmed_mean` | Coordinate-wise trimmed mean, drops `byzantine_f` largest/smallest per coordinate | Yin et al., ICML 2018 |
-| `median` | Coordinate-wise median | Yin et al., ICML 2018 |
-| `krum` | Selects the single update closest to its neighbors (drops outliers) | Blanchard et al., NeurIPS 2017 |
-| `multi_krum` | Averages the `n - byzantine_f` best-scoring updates | Blanchard et al., NeurIPS 2017 |
+| Strategy       | Rule                                                                              | Reference                      |
+| -------------- | --------------------------------------------------------------------------------- | ------------------------------ |
+| `fedavg`       | Weighted average by `n_samples` (default)                                         | McMahan et al., AISTATS 2017   |
+| `trimmed_mean` | Coordinate-wise trimmed mean, drops `byzantine_f` largest/smallest per coordinate | Yin et al., ICML 2018          |
+| `median`       | Coordinate-wise median                                                            | Yin et al., ICML 2018          |
+| `krum`         | Selects the single update closest to its neighbors (drops outliers)               | Blanchard et al., NeurIPS 2017 |
+| `multi_krum`   | Averages the `n - byzantine_f` best-scoring updates                               | Blanchard et al., NeurIPS 2017 |
 
 See `configs/rooms/fashion-room-robust.yaml` for an example, and
 `tests/test_inference_and_strategies.py` for correctness tests showing each
@@ -232,17 +240,17 @@ fully solve).
 
 ## 13. Starting points / attribution
 
-* McMahan, B. et al. *Communication-Efficient Learning of Deep Networks
-  from Decentralized Data.* AISTATS, 2017. (weighted FedAvg formula)
-* Bonawitz, K. et al. *Practical Secure Aggregation for Privacy-Preserving
-  Machine Learning.* ACM CCS, 2017. (referenced in the security
+- McMahan, B. et al. _Communication-Efficient Learning of Deep Networks
+  from Decentralized Data._ AISTATS, 2017. (weighted FedAvg formula)
+- Bonawitz, K. et al. _Practical Secure Aggregation for Privacy-Preserving
+  Machine Learning._ ACM CCS, 2017. (referenced in the security
   limitations discussion)
-* Blanchard, P. et al. *Machine Learning with Adversaries: Byzantine
-  Tolerant Gradient Descent.* NeurIPS, 2017. (Krum/Multi-Krum strategy)
-* Yin, D. et al. *Byzantine-Robust Distributed Learning: Towards Optimal
-  Statistical Rates.* ICML, 2018. (Trimmed-mean/Median strategy)
-* Shejwalkar, V. & Houmansadr, A. *Manipulating the Byzantine: Optimizing
-  Model Poisoning Attacks and Defenses for Federated Learning.* NDSS, 2021.
+- Blanchard, P. et al. _Machine Learning with Adversaries: Byzantine
+  Tolerant Gradient Descent._ NeurIPS, 2017. (Krum/Multi-Krum strategy)
+- Yin, D. et al. _Byzantine-Robust Distributed Learning: Towards Optimal
+  Statistical Rates._ ICML, 2018. (Trimmed-mean/Median strategy)
+- Shejwalkar, V. & Houmansadr, A. _Manipulating the Byzantine: Optimizing
+  Model Poisoning Attacks and Defenses for Federated Learning._ NDSS, 2021.
   (referenced in the security limitations discussion)
 
 All other code (coordinator, client agent, aggregation strategies, CLI,

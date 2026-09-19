@@ -9,28 +9,37 @@ echo "== 1. Create room =="
 python -m tui.cli room create --config configs/rooms/fashion-room.yaml --url "$URL"
 
 echo "== 2. Client A joins and trains alone for one round =="
-python -m tui.cli client join fashion-room --config configs/clients/client-a.yaml
+# NOTE: `client join` only registers a client -- it does not train. `client
+# train` is what actually polls for selection, downloads the model, trains
+# locally, and submits. Skipping it is the #1 cause of a round never
+# progressing (it just times out with zero responses and fails quorum).
+python -m tui.cli client join fashion-room --config configs/clients/client-a.yaml --url "$URL"
 python -m tui.cli train start fashion-room --rounds 5 --url "$URL"
-python -c "
-from client.agent import ClientAgent
-from client.config import ClientConfig
-cfg = ClientConfig.from_yaml('configs/clients/client-a.yaml')
-agent = ClientAgent(cfg)
-print(agent.train_once())
-"
+python -m tui.cli client train fashion-room --config configs/clients/client-a.yaml --rounds 1 --url "$URL"
 
-echo "== 3. Clients B and C join WHILE training is active =="
-python -m tui.cli client join fashion-room --config configs/clients/client-b.yaml
-python -m tui.cli client join fashion-room --config configs/clients/client-c.yaml
+echo "== 3. Clients B and C join WHILE training is active, then train in round 2 =="
+python -m tui.cli client join fashion-room --config configs/clients/client-b.yaml --url "$URL"
+python -m tui.cli client join fashion-room --config configs/clients/client-c.yaml --url "$URL"
 python -m tui.cli train advance fashion-room --url "$URL"
+python -m tui.cli client train fashion-room --config configs/clients/client-b.yaml --rounds 1 --url "$URL"
+python -m tui.cli client train fashion-room --config configs/clients/client-c.yaml --rounds 1 --url "$URL"
 
 echo "== 4. Room status =="
 python -m tui.cli room status fashion-room --url "$URL"
 
 echo "== 5. Run inference against the latest checkpoint =="
-python -m tui.cli infer fashion-room --config configs/clients/client-a.yaml --version latest
+python -m tui.cli infer fashion-room --config configs/clients/client-a.yaml --version latest --url "$URL"
 
 echo "== 6. Failure injection evidence =="
 python experiments/inject_failures.py --url "$URL"
+
+echo "== 7. Scalability experiment (writes experiments/results/scalability.json) =="
+python experiments/run_scalability.py --url "$URL" --levels 1,2,4
+
+echo "== 8. Non-IID experiment (writes experiments/results/noniid.json) =="
+python experiments/run_noniid.py --url "$URL"
+
+echo "== 9. Render plots/tables from the artifacts above =="
+python experiments/plot_results.py
 
 echo "Demo complete. See experiments/results/ for scalability/non-IID artifacts."

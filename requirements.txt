@@ -21,7 +21,8 @@ rich>=13.7
 ray[default]>=2.10
 
 # Client-side ML (optional at import time -- coordinator runs without these)
-torch>=2.2
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.5.1+cpu
 torchvision>=0.17
 
 # Experiments / plotting
