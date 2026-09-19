@@ -69,18 +69,83 @@ def _log_metrics(room: Room, summary: dict) -> None:
                 "strategy": room.agg_config.strategy,
                 "quorum": room.agg_config.quorum,
                 "round_timeout_seconds": room.agg_config.round_timeout_seconds,
+                "byzantine_f": room.agg_config.byzantine_f,
             }
         )
-    tracker.log_metrics(
-        {
-            "completed_clients": summary["n_completed"],
-            "selected_clients": summary["n_selected"],
-            "dropped_clients": summary["n_dropped"],
-            "rejected_clients": summary["n_rejected"],
-            "round_duration_seconds": summary["duration_seconds"],
-        },
-        step=summary["round"],
-    )
+
+    # --- Room/global metric group -----------------------------------
+    metrics = {
+        "completed_clients": summary["n_completed"],
+        "selected_clients": summary["n_selected"],
+        "dropped_clients": summary["n_dropped"],
+        "rejected_clients": summary["n_rejected"],
+        "version": summary["new_version"],
+        # "Global task metric": the coordinator never holds a labeled
+        # validation set of its own (it would then be doing centralized
+        # training, contradicting the platform's data-locality design), so
+        # this is a federated-evaluation ESTIMATE: the mean, across
+        # responding clients, of each client's own evaluation of the model
+        # it was just handed (before local training) on a held-out slice of
+        # its own data. See RoomManager._summarize_client_metrics and
+        # docs/EXPLAINER.md Section 8 for the full explanation and caveats.
+        **({"global_accuracy_estimate": summary["avg_pretrain_eval_accuracy"]}
+           if "avg_pretrain_eval_accuracy" in summary else {}),
+        **({"global_loss_estimate": summary["avg_pretrain_eval_loss"]}
+           if "avg_pretrain_eval_loss" in summary else {}),
+        **({"avg_client_train_accuracy": summary["avg_train_accuracy"]}
+           if "avg_train_accuracy" in summary else {}),
+        **({"avg_client_train_loss": summary["avg_train_loss"]}
+           if "avg_train_loss" in summary else {}),
+
+        # --- Timing metric group -----------------------------------
+        "round_duration_seconds": summary["duration_seconds"],
+        "aggregation_seconds": summary["aggregation_seconds"],
+        **({"avg_client_selection_wait_seconds": summary["avg_selection_wait_seconds"]}
+           if "avg_selection_wait_seconds" in summary else {}),
+        **({"avg_client_local_training_seconds": summary["avg_local_training_seconds"]}
+           if "avg_local_training_seconds" in summary else {}),
+        **({"avg_client_download_seconds": summary["avg_download_seconds"]}
+           if "avg_download_seconds" in summary else {}),
+        **({"avg_client_upload_seconds": summary["avg_upload_seconds"]}
+           if "avg_upload_seconds" in summary else {}),
+
+        # --- System metric group: payload size / network bytes -----
+        **({"avg_update_payload_bytes": summary["avg_payload_bytes"]}
+           if "avg_payload_bytes" in summary else {}),
+        **({"total_update_payload_bytes": summary["total_payload_bytes"]}
+           if "total_payload_bytes" in summary else {}),
+    }
+
+    # --- System metric group: coordinator process CPU/memory ---------
+    # This measures the coordinator's OWN process, which is the one metric
+    # the coordinator can observe directly without any extra infrastructure.
+    # It is a *complement* to, not a replacement for, real per-pod CPU/
+    # memory captured via `kubectl top pods` in the Kubernetes deployment
+    # (see scripts/scale-experiment.sh and docs/report.md Section 5.4) --
+    # that captures client pods too, which this cannot.
+    try:
+        import psutil
+
+        proc = psutil.Process(os.getpid())
+        metrics["coordinator_cpu_percent"] = proc.cpu_percent(interval=0.1)
+        metrics["coordinator_memory_mb"] = proc.memory_info().rss / (1024 * 1024)
+    except ImportError:
+        pass
+
+    tracker.log_metrics(metrics, step=summary["round"])
+    # Lineage: strategy/version/checkpoint URI as run tags (MLflow tags are
+    # not step-indexed, so the numeric history above carries "version" per
+    # round; the checkpoint URI's full per-version history lives in the SQL
+    # CheckpointORM table / the dashboard's checkpoint list, which is the
+    # more appropriate place for a non-numeric per-version artifact record).
+    try:
+        import mlflow
+
+        mlflow.set_tag("latest_checkpoint_uri", summary["checkpoint_uri"])
+        mlflow.set_tag("latest_version", str(summary["new_version"]))
+    except Exception:
+        pass
+
     with SessionLocal() as session:
         session.add(
             RoundEventORM(
@@ -270,19 +335,29 @@ def get_model(room_id: str, version: Optional[str] = "latest"):
 
 @app.post("/rooms/{room_id}/updates")
 def submit_update(room_id: str, req: UpdateSubmitRequest):
+    request_t0 = time.perf_counter()
     try:
         state = b64_to_state(req.state_b64)
+        # Server-side request-handling latency (decode + validate) is
+        # measured here rather than client-side, because the client cannot
+        # know its own upload duration before the request finishes sending
+        # -- see client/agent.py::train_once for the client-side rationale.
+        # This is what RoomManager averages into "avg_upload_seconds" per
+        # round.
+        client_metrics = dict(req.metrics)
+        client_metrics["upload_seconds"] = time.perf_counter() - request_t0
         manager.submit_update(
             room_id=room_id,
             client_id=req.client_id,
             state=state,
             n_samples=req.n_samples,
             base_version=req.base_version,
+            client_metrics=client_metrics,
         )
         with SessionLocal() as session:
             session.add(
                 ClientEventORM(room_id=room_id, client_id=req.client_id, event="update_accepted",
-                                detail={"n_samples": req.n_samples, "metrics": req.metrics})
+                                detail={"n_samples": req.n_samples, "metrics": client_metrics})
             )
             session.commit()
         return {"status": "accepted"}
@@ -335,6 +410,27 @@ def log_inference(room_id: str, req: InferenceLogRequest):
 @app.get("/healthz")
 def healthz():
     return {"status": "ok", "rooms": len(manager.list_rooms())}
+
+
+@app.get("/system")
+def system_metrics():
+    """Live coordinator process CPU/memory -- kept as a separate endpoint
+    (rather than folded into RoomManager's per-round summary) so the
+    round-summary data structure stays infrastructure-free and easy to unit
+    test (see tests/test_metrics.py). Polled by the dashboard for its
+    system-metrics cards; also what experiments/verify_metrics.py checks.
+    """
+    try:
+        import psutil
+
+        proc = psutil.Process(os.getpid())
+        return {
+            "cpu_percent": proc.cpu_percent(interval=0.1),
+            "memory_mb": proc.memory_info().rss / (1024 * 1024),
+            "available": True,
+        }
+    except ImportError:
+        return {"available": False, "reason": "psutil not installed"}
 
 
 # --------------------------------------------------------------------------- #

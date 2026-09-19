@@ -15,6 +15,7 @@ used directly by `experiments/run_scalability.py` (via Ray actors) and by
 """
 from __future__ import annotations
 
+import json
 import logging
 import time
 from typing import Optional
@@ -80,10 +81,26 @@ class ClientAgent:
     def _train_locally(self, global_state: dict) -> tuple[dict, int, dict]:
         """Train on the local partition starting from `global_state`.
 
-        Returns (updated_state, n_samples, local_metrics).
+        Returns (updated_state, n_samples, local_metrics). `local_metrics`
+        includes both this client's own post-training quality
+        (train_loss/train_accuracy) AND its evaluation of the model it was
+        JUST GIVEN, before training (pretrain_eval_loss/pretrain_eval_accuracy)
+        on a held-out slice of its own partition -- this is the federated-
+        evaluation signal the coordinator averages across clients to report
+        an approximate "global task metric" without ever holding a labeled
+        validation set itself (see RoomManager._summarize_client_metrics).
         """
         partition = self._load_partition()
         n_samples = len(partition.labels)
+
+        # Hold out the last 20% of this client's own partition as a local
+        # validation split -- used only for the pretrain-eval signal above,
+        # never sent anywhere itself (only the resulting scalar loss/accuracy
+        # is reported).
+        n_val = max(1, int(0.2 * n_samples)) if n_samples >= 5 else 0
+        n_train = n_samples - n_val
+        train_images, val_images = partition.images[:n_train], partition.images[n_train:]
+        train_labels, val_labels = partition.labels[:n_train], partition.labels[n_train:]
 
         try:
             import torch
@@ -92,8 +109,19 @@ class ClientAgent:
             model = build_model()
             numpy_state_to_torch(global_state, model=model)
 
-            x = torch.from_numpy(partition.images)
-            y = torch.from_numpy(partition.labels)
+            # --- pretrain evaluation of the model we were just given ---
+            pretrain_eval_loss, pretrain_eval_accuracy = None, None
+            if n_val > 0:
+                model.eval()
+                with torch.no_grad():
+                    xv = torch.from_numpy(val_images)
+                    yv = torch.from_numpy(val_labels)
+                    logits = model(xv)
+                    pretrain_eval_loss = float(nn.functional.cross_entropy(logits, yv).item())
+                    pretrain_eval_accuracy = float((logits.argmax(1) == yv).float().mean().item())
+
+            x = torch.from_numpy(train_images)
+            y = torch.from_numpy(train_labels)
             opt = torch.optim.SGD(model.parameters(), lr=self.cfg.learning_rate)
             loss_fn = nn.CrossEntropyLoss()
 
@@ -103,7 +131,7 @@ class ClientAgent:
             bs = max(1, self.cfg.batch_size)
             t0 = time.time()
             for _ in range(self.cfg.local_epochs):
-                perm = torch.randperm(n)
+                perm = torch.randperm(n) if n > 0 else torch.arange(0)
                 for start in range(0, n, bs):
                     idx = perm[start:start + bs]
                     xb, yb = x[idx], y[idx]
@@ -120,6 +148,8 @@ class ClientAgent:
             metrics = {
                 "train_loss": total_loss / max(total_seen, 1),
                 "train_accuracy": total_correct / max(total_seen, 1),
+                "pretrain_eval_loss": pretrain_eval_loss,
+                "pretrain_eval_accuracy": pretrain_eval_accuracy,
                 "local_training_seconds": elapsed,
                 "n_samples": n_samples,
             }
@@ -128,6 +158,9 @@ class ClientAgent:
             # torch not installed: numpy-only fallback so the round can still
             # complete (useful for lightweight CI / scalability simulations
             # that only care about coordinator throughput, not model quality).
+            # No meaningful loss/accuracy exists in this path -- reported as
+            # None (never a fabricated number), which RoomManager's averaging
+            # simply skips.
             t0 = time.time()
             noisy_state = {
                 k: (v + np.random.default_rng(hash(self.cfg.client_id) % (2**32)).normal(
@@ -136,6 +169,7 @@ class ClientAgent:
             }
             elapsed = time.time() - t0
             metrics = {"train_loss": None, "train_accuracy": None,
+                       "pretrain_eval_loss": None, "pretrain_eval_accuracy": None,
                        "local_training_seconds": elapsed, "n_samples": n_samples,
                        "note": "torch not installed; numpy no-op fallback update used"}
             return noisy_state, n_samples, metrics
@@ -149,6 +183,7 @@ class ClientAgent:
         and no new round has started yet) -- avoids polling forever.
         """
         deadline = time.time() + max_wait_seconds
+        wait_t0 = time.time()
         while True:
             st = self.status()
             if st["state"] in ("stopped",):
@@ -169,27 +204,51 @@ class ClientAgent:
                 )
                 return None
             time.sleep(self.cfg.poll_interval_seconds)
+        selection_wait_seconds = time.time() - wait_t0
 
+        download_t0 = time.time()
         model_resp = self.session.get(self._url(f"/rooms/{self.cfg.room_id}/model"), timeout=30)
         model_resp.raise_for_status()
+        download_seconds = time.time() - download_t0
         payload = model_resp.json()
         base_version = payload["version"]
         global_state = b64_to_state(payload["state_b64"])
+        download_bytes = len(model_resp.content)
 
         updated_state, n_samples, metrics = self._train_locally(global_state)
 
+        submit_body = {
+            "client_id": self.cfg.client_id,
+            "base_version": base_version,
+            "n_samples": n_samples,
+            "state_b64": state_to_b64(updated_state),
+            "metrics": {
+                **metrics,
+                "selection_wait_seconds": selection_wait_seconds,
+                "download_seconds": download_seconds,
+                "download_bytes": download_bytes,
+            },
+        }
+        # Upload/server-processing time cannot be known before the request
+        # finishes sending (it would have to be included in the very body
+        # being timed), so it is measured server-side instead -- see
+        # coordinator/app.py::submit_update, which injects "upload_seconds"
+        # into the metrics it hands to RoomManager. `payload_bytes` here is
+        # what we DO know client-side before sending.
+        submit_body["metrics"]["payload_bytes"] = len(json.dumps(submit_body).encode("utf-8"))
+
+        client_side_t0 = time.time()
         submit_resp = self.session.post(
             self._url(f"/rooms/{self.cfg.room_id}/updates"),
-            json={
-                "client_id": self.cfg.client_id,
-                "base_version": base_version,
-                "n_samples": n_samples,
-                "state_b64": state_to_b64(updated_state),
-                "metrics": metrics,
-            },
+            json=submit_body,
             timeout=30,
         )
-        result = {"status_code": submit_resp.status_code, "body": submit_resp.json()}
+        # Round-trip time as observed by the client (network + server
+        # processing); logged locally for the caller/CLI, not sent to the
+        # server (see note above).
+        client_observed_upload_seconds = time.time() - client_side_t0
+        result = {"status_code": submit_resp.status_code, "body": submit_resp.json(),
+                  "client_observed_upload_seconds": client_observed_upload_seconds}
         logger.info("client %s submitted update: %s", self.cfg.client_id, result)
         return result
 

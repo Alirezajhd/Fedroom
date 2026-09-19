@@ -12,3 +12,4 @@ rich>=13.7
 ray[default]>=2.10
 torch>=2.2
 torchvision>=0.17
+psutil>=5.9

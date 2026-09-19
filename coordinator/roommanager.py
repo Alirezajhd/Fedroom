@@ -86,6 +86,14 @@ class RoundState:
     timeout_seconds: float
     submissions: Dict[str, ClientUpdate] = field(default_factory=dict)
     rejections: Dict[str, str] = field(default_factory=dict)
+    # Per-client metrics reported alongside each update: local_training_seconds,
+    # download_seconds, upload_seconds, payload_bytes, train_loss,
+    # train_accuracy, pretrain_eval_loss, pretrain_eval_accuracy (all optional
+    # -- see client/agent.py). Kept here (not just in the SQL audit log) so
+    # `maybe_finalize_round` can aggregate them into the round summary that
+    # gets logged to MLflow, satisfying the assignment's "Timing" and
+    # "Client" metric-group requirements.
+    client_metrics: Dict[str, dict] = field(default_factory=dict)
     status: RoundStatus = RoundStatus.RUNNING
 
 
@@ -121,6 +129,46 @@ class Room:
 # --------------------------------------------------------------------------- #
 # RoomManager
 # --------------------------------------------------------------------------- #
+def _summarize_client_metrics(client_metrics: Dict[str, dict]) -> dict:
+    """Average the optional per-client metrics reported alongside each
+    update into round-level numbers for MLflow/the dashboard.
+
+    Reported keys (all optional -- see client/agent.py):
+      - selection_wait_seconds, local_training_seconds, download_seconds,
+        upload_seconds: timing (upload_seconds is measured server-side --
+        see coordinator/app.py::submit_update -- since a client cannot know
+        its own upload duration before the request finishes sending)
+      - payload_bytes: size of the update sent over the wire
+      - train_loss, train_accuracy: this client's own post-training metrics
+      - pretrain_eval_loss, pretrain_eval_accuracy: this client's evaluation
+        of the CURRENT global model (before local training) on its own
+        held-out split -- a federated-evaluation proxy for "global task
+        metric", since the coordinator never holds a labeled validation set
+        itself (that would mean it holds training-style data, which
+        contradicts the platform's data-locality design). Averaged (mean,
+        not weighted -- these are per-client quality signals, not
+        contributions to the model) across responding clients, this
+        approximates how well the *previous* global checkpoint generalizes.
+    """
+    numeric_keys = [
+        "local_training_seconds", "download_seconds", "upload_seconds", "selection_wait_seconds",
+        "train_loss", "train_accuracy", "pretrain_eval_loss", "pretrain_eval_accuracy",
+    ]
+    out: dict = {}
+    for key in numeric_keys:
+        values = [m[key] for m in client_metrics.values() if isinstance(m, dict) and m.get(key) is not None]
+        if values:
+            out[f"avg_{key}"] = sum(values) / len(values)
+    payload_values = [
+        m["payload_bytes"] for m in client_metrics.values()
+        if isinstance(m, dict) and m.get("payload_bytes") is not None
+    ]
+    if payload_values:
+        out["total_payload_bytes"] = sum(payload_values)
+        out["avg_payload_bytes"] = sum(payload_values) / len(payload_values)
+    return out
+
+
 class RoomManager:
     """Thread-safe, in-process registry of rooms.
 
@@ -281,6 +329,7 @@ class RoomManager:
         state: StateDict,
         n_samples: int,
         base_version: int,
+        client_metrics: Optional[dict] = None,
     ) -> None:
         with self._lock:
             room = self.get_room(room_id)
@@ -311,6 +360,7 @@ class RoomManager:
             rnd.submissions[client_id] = ClientUpdate(
                 client_id=client_id, n_samples=n_samples, state=state, base_version=base_version
             )
+            rnd.client_metrics[client_id] = client_metrics or {}
             room.clients[client_id].status = ClientStatus.COMPLETED
             room.log("update_accepted", client_id=client_id, n_samples=n_samples)
 
@@ -366,7 +416,9 @@ class RoomManager:
 
             rnd.status = RoundStatus.AGGREGATING
             strategy = get_strategy(room.agg_config.strategy, byzantine_f=room.agg_config.byzantine_f)
+            agg_t0 = time.perf_counter()
             new_state = strategy.aggregate(list(rnd.submissions.values()))
+            aggregation_seconds = time.perf_counter() - agg_t0
             new_version = room.current_version + 1
             room.global_state = new_state
             room.current_version = new_version
@@ -388,11 +440,15 @@ class RoomManager:
                 "status": "aggregated",
                 "round": rnd.round_number,
                 "new_version": new_version,
+                "strategy": room.agg_config.strategy,
+                "checkpoint_uri": checkpoint_uri or f"memory://{room.room_id}/v{new_version}",
                 "n_completed": len(rnd.submissions),
                 "n_selected": len(rnd.selected),
                 "n_dropped": len(dropped),
                 "n_rejected": len(rnd.rejections),
                 "duration_seconds": elapsed,
+                "aggregation_seconds": aggregation_seconds,
+                **_summarize_client_metrics(rnd.client_metrics),
             }
             if self._on_metrics is not None:
                 self._on_metrics(room, summary)

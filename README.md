@@ -143,7 +143,8 @@ kubectl -n fedroom logs job/fedroom-scalability-driver -f
 ## 7. Experiments
 
 ```bash
-python -m pytest tests/ -v                                   # correctness + state machine (23 tests)
+python -m pytest tests/ -v                                   # correctness + state machine (25 tests)
+python experiments/verify_metrics.py --url http://localhost:8000  # confirms every spec-required metric is actually produced
 python experiments/run_scalability.py --levels 1,2,4,8        # local Ray/thread simulation
 python experiments/run_noniid.py                              # IID vs non-IID vs robust strategy
 python experiments/inject_failures.py                         # timeout/stale/NaN/oversized rejection
