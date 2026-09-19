@@ -85,8 +85,15 @@ client claiming an inflated sample count to dominate the aggregate.
   `client join/leave`, `train start/status/advance`, `model list`,
   `infer`).
 * **Storage & tracking**: `coordinator/storage.py` (MinIO/S3 via boto3,
-  `.npz` checkpoints) and `coordinator/tracking.py` (MLflow, nested
-  per-room runs with per-round metrics).
+  `.npz` checkpoints) and `coordinator/tracking.py` (MLflow, one run per
+  room with per-round metrics). Every metric group the assignment
+  requires (Part 2.6) is covered -- global task metric, round/version/
+  strategy/checkpoint lineage, the full timing breakdown (wait/train/
+  download/upload/aggregation), per-client detail (SQL audit log), and
+  system metrics (CPU/memory via `psutil`, payload bytes) -- mapped
+  line-by-line, with the exact code location for each, in
+  `docs/EXPLAINER.md` §12. Run `python experiments/verify_metrics.py` to
+  confirm all of it against a live coordinator.
 * **Metadata**: SQLAlchemy models (`coordinator/models.py`) persist rooms,
   client events, round outcomes, and checkpoint records to SQLite by
   default (Postgres via `DATABASE_URL`).
@@ -112,10 +119,11 @@ rounds.
 ### 5.1 Correctness baseline
 
 ```bash
-python -m pytest tests/ -v          # 23/23 passing: FedAvg math, contract
+python -m pytest tests/ -v          # 25/25 passing: FedAvg math, contract
                                      # validation, membership/quorum/timeout
                                      # state machine, checkpoint round-trip,
-                                     # robust-aggregation strategies
+                                     # robust-aggregation strategies, and
+                                     # per-round metrics aggregation
 ```
 
 **[FILL IN FROM YOUR RUN]** Paste the `pytest` summary line and a one/two

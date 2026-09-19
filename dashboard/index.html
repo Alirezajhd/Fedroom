@@ -25,6 +25,8 @@
     background: var(--panel); border: 1px solid var(--border); color: var(--text);
     padding: 6px 10px; border-radius: 6px; font-size: 13px; width: 260px;
   }
+  header .sysmetrics { display: flex; gap: 14px; font-size: 12px; color: var(--muted); }
+  header .sysmetrics b { color: var(--text); }
   header .status-dot {
     width: 8px; height: 8px; border-radius: 50%; background: var(--grey); display: inline-block;
   }
@@ -75,6 +77,7 @@
   <h1>Fedroom</h1>
   <span class="sub">operational dashboard</span>
   <div style="flex:1"></div>
+  <div class="sysmetrics" id="sysmetrics"></div>
   <label class="sub">Coordinator URL</label>
   <input id="url-input" value="" />
 </header>
@@ -100,6 +103,18 @@ async function fetchJSON(path) {
   const res = await fetch(`${state.url}${path}`);
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return res.json();
+}
+
+async function refreshSystem() {
+  try {
+    const sys = await fetchJSON('/system');
+    const el = document.getElementById('sysmetrics');
+    if (sys.available) {
+      el.innerHTML = `<span>CPU <b>${sys.cpu_percent.toFixed(1)}%</b></span><span>Mem <b>${sys.memory_mb.toFixed(0)} MB</b></span>`;
+    } else {
+      el.innerHTML = `<span>psutil not installed</span>`;
+    }
+  } catch (e) { /* system endpoint optional; ignore */ }
 }
 
 function renderNav() {
@@ -144,6 +159,7 @@ function renderContent() {
   ` : '<div class="empty">No round currently in progress</div>';
 
   const history = room.metrics_history || [];
+  const latest = history[history.length - 1];
   const maxDur = Math.max(1, ...history.map(m => m.duration_seconds || 0));
   const bars = history.length ? `
     <div class="bars">
@@ -156,6 +172,24 @@ function renderContent() {
     </div>
   ` : '<div class="empty">No completed rounds yet</div>';
 
+  const globalMetricHtml = (latest && latest.avg_pretrain_eval_accuracy !== undefined) ? `
+    <div class="grid">
+      <div class="card"><div class="label">Global accuracy (est.)</div><div class="value">${(latest.avg_pretrain_eval_accuracy * 100).toFixed(1)}%</div></div>
+      <div class="card"><div class="label">Global loss (est.)</div><div class="value">${latest.avg_pretrain_eval_loss.toFixed(3)}</div></div>
+      <div class="card"><div class="label">Client train acc.</div><div class="value">${latest.avg_train_accuracy !== undefined ? (latest.avg_train_accuracy * 100).toFixed(1) + '%' : '-'}</div></div>
+      <div class="card"><div class="label">Aggregation (s)</div><div class="value">${latest.aggregation_seconds.toFixed(3)}</div></div>
+    </div>
+  ` : '';
+
+  const timingHtml = latest ? `
+    <div class="grid">
+      <div class="card"><div class="label">Avg. wait (s)</div><div class="value">${(latest.avg_selection_wait_seconds ?? 0).toFixed(2)}</div></div>
+      <div class="card"><div class="label">Avg. download (s)</div><div class="value">${(latest.avg_download_seconds ?? 0).toFixed(2)}</div></div>
+      <div class="card"><div class="label">Avg. train (s)</div><div class="value">${(latest.avg_local_training_seconds ?? 0).toFixed(2)}</div></div>
+      <div class="card"><div class="label">Avg. upload (s)</div><div class="value">${(latest.avg_upload_seconds ?? 0).toFixed(2)}</div></div>
+    </div>
+  ` : '';
+
   content.innerHTML = `
     <div class="grid">
       <div class="card"><div class="label">State</div><div class="value" style="font-size:16px">${room.state}</div></div>
@@ -166,6 +200,12 @@ function renderContent() {
 
     <div class="panel-title">Active round</div>
     ${activeHtml}
+
+    <div class="panel-title">Global task metric (federated-evaluation estimate)</div>
+    ${globalMetricHtml || '<div class="empty">No client-reported evaluation metrics yet (requires torch on the client)</div>'}
+
+    <div class="panel-title">Latest round timing breakdown</div>
+    ${timingHtml || '<div class="empty">No timing data yet</div>'}
 
     <div class="panel-title">Clients</div>
     <table><thead><tr><th>Client ID</th><th>Status</th><th>Eligible from round</th></tr></thead>
@@ -188,6 +228,7 @@ async function refresh() {
     if (!state.selected && state.rooms.length) state.selected = state.rooms[0].room_id;
     renderNav();
     renderContent();
+    refreshSystem();
   } catch (e) {
     dot.className = 'status-dot bad';
     document.getElementById('room-nav').innerHTML = `<div class="empty">Cannot reach coordinator at<br><code>${state.url}</code></div>`;
