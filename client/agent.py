@@ -204,20 +204,10 @@ class ClientAgent:
                 for k, v in global_state.items()
             }
             elapsed = time.time() - t0
-<<<<<<< HEAD
-            metrics = {
-                "train_loss": None,
-                "train_accuracy": None,
-                "local_training_seconds": elapsed,
-                "n_samples": n_samples,
-                "note": "torch not installed; numpy no-op fallback update used",
-            }
-=======
             metrics = {"train_loss": None, "train_accuracy": None,
                        "pretrain_eval_loss": None, "pretrain_eval_accuracy": None,
                        "local_training_seconds": elapsed, "n_samples": n_samples,
                        "note": "torch not installed; numpy no-op fallback update used"}
->>>>>>> 6ead4d46ee5e453f3da81d12880e768d91402540
             return noisy_state, n_samples, metrics
 
     # ------------------------------------------------------------------ #
@@ -259,14 +249,8 @@ class ClientAgent:
             time.sleep(self.cfg.poll_interval_seconds)
         selection_wait_seconds = time.time() - wait_t0
 
-<<<<<<< HEAD
-        model_resp = self.session.get(
-            self._url(f"/rooms/{self.cfg.room_id}/model"), timeout=30
-        )
-=======
         download_t0 = time.time()
         model_resp = self.session.get(self._url(f"/rooms/{self.cfg.room_id}/model"), timeout=30)
->>>>>>> 6ead4d46ee5e453f3da81d12880e768d91402540
         model_resp.raise_for_status()
         download_seconds = time.time() - download_t0
         payload = model_resp.json()
