@@ -15,13 +15,35 @@ If torchvision/torch or network access to the dataset mirror is unavailable
 (e.g. in an offline CI sandbox), a small deterministic synthetic dataset is
 generated instead so the rest of the pipeline (partitioning, training loop,
 submission) can still be exercised end-to-end.
+
+CACHING (important for correctness under concurrency, not just speed):
+`partition_for_client` -- and therefore `_load_full_dataset` /
+`_load_s3_shard` -- is called fresh every training round by every client.
+Without caching, `_load_full_dataset` used to re-decode and re-stack all
+60,000 Fashion-MNIST images via a per-sample Python loop on EVERY call. For
+a single client this alone costs several seconds per round; run several
+simulated clients concurrently (as `experiments/run_scalability.py` and
+`experiments/run_noniid.py` do via a `ThreadPoolExecutor`) and this
+CPU-bound, pure-Python, GIL-bound loop does not parallelize -- it roughly
+serializes across threads, so wall-clock time per round scaled with the
+number of concurrent clients (observed: ~1 client ~7-10s/round, ~2 clients
+~34s/round, ~4 clients ~170s/round). Past whatever `round_timeout_seconds`
+is configured, this made every client's submission arrive after the round
+had already failed quorum (0 responses) -- "No round is currently
+accepting updates" for every client, every round, at 4+ concurrent
+clients. The fix below caches the loaded array (keyed by source) so the
+expensive load happens at most once per process, and avoids the slow
+per-sample loop entirely by reading torchvision's underlying tensor
+directly instead of iterating `dataset[i]` 60,000 times.
 """
+
 from __future__ import annotations
 
 import hashlib
 import os
+import threading
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import numpy as np
 
@@ -30,6 +52,10 @@ import numpy as np
 class Partition:
     images: np.ndarray  # (N, 1, 28, 28) float32 in [0, 1]
     labels: np.ndarray  # (N,) int64
+
+
+_dataset_cache: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
+_dataset_cache_lock = threading.Lock()
 
 
 def _synthetic_dataset(n: int, seed: int) -> Tuple[np.ndarray, np.ndarray]:
@@ -44,15 +70,21 @@ def _synthetic_dataset(n: int, seed: int) -> Tuple[np.ndarray, np.ndarray]:
     return images, labels.astype(np.int64)
 
 
-def _load_full_dataset(local_root: str) -> Tuple[np.ndarray, np.ndarray]:
+def _load_full_dataset_uncached(local_root: str) -> Tuple[np.ndarray, np.ndarray]:
     try:
         import torch  # noqa: F401
-        from torchvision import datasets, transforms
+        from torchvision import datasets
 
-        tfm = transforms.Compose([transforms.ToTensor()])
-        ds = datasets.FashionMNIST(root=local_root, train=True, download=True, transform=tfm)
-        images = np.stack([np.array(ds[i][0]) for i in range(len(ds))]).astype(np.float32)
-        labels = np.array([ds[i][1] for i in range(len(ds))], dtype=np.int64)
+        # Downloads (if needed) and loads the dataset, but reads the
+        # underlying (60000, 28, 28) uint8 tensor and (60000,) label tensor
+        # directly -- NOT via `dataset[i]` in a Python loop, which was the
+        # actual bottleneck (see module docstring). This produces the exact
+        # same values as the previous `transforms.ToTensor()` per-sample
+        # path (uint8 [0,255] -> float32 [0,1], with a channel dimension
+        # added), just ~60,000x fewer Python-level operations.
+        ds = datasets.FashionMNIST(root=local_root, train=True, download=True)
+        images = (ds.data.numpy().astype(np.float32) / 255.0)[:, np.newaxis, :, :]
+        labels = ds.targets.numpy().astype(np.int64)
         return images, labels
     except Exception:
         # Offline / no torchvision available: fall back to synthetic data so
@@ -60,7 +92,25 @@ def _load_full_dataset(local_root: str) -> Tuple[np.ndarray, np.ndarray]:
         return _synthetic_dataset(n=6000, seed=0)
 
 
-def _load_s3_shard(bucket: str, key: str) -> Tuple[np.ndarray, np.ndarray]:
+def _load_full_dataset(local_root: str) -> Tuple[np.ndarray, np.ndarray]:
+    cache_key = f"local:{os.path.abspath(local_root)}"
+    cached = _dataset_cache.get(cache_key)
+    if cached is not None:
+        return cached
+    with _dataset_cache_lock:
+        # Re-check inside the lock: another thread may have finished
+        # loading while we were waiting for it (avoids a "thundering herd"
+        # of concurrent clients all paying the load cost on their first
+        # round -- only one does, the rest wait briefly then hit the cache).
+        cached = _dataset_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        result = _load_full_dataset_uncached(local_root)
+        _dataset_cache[cache_key] = result
+        return result
+
+
+def _load_s3_shard_uncached(bucket: str, key: str) -> Tuple[np.ndarray, np.ndarray]:
     import boto3
 
     client = boto3.client(
@@ -74,6 +124,20 @@ def _load_s3_shard(bucket: str, key: str) -> Tuple[np.ndarray, np.ndarray]:
 
     with np.load(io.BytesIO(obj["Body"].read())) as npz:
         return npz["images"].astype(np.float32), npz["labels"].astype(np.int64)
+
+
+def _load_s3_shard(bucket: str, key: str) -> Tuple[np.ndarray, np.ndarray]:
+    cache_key = f"s3:{bucket}/{key}"
+    cached = _dataset_cache.get(cache_key)
+    if cached is not None:
+        return cached
+    with _dataset_cache_lock:
+        cached = _dataset_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        result = _load_s3_shard_uncached(bucket, key)
+        _dataset_cache[cache_key] = result
+        return result
 
 
 def partition_for_client(
@@ -109,7 +173,9 @@ def partition_for_client(
         shards_per_client = max(1, 2)
         n_shards = n_clients * shards_per_client
         shard_size = max(1, len(labels) // n_shards)
-        shard_ids = list(range(idx * shards_per_client, idx * shards_per_client + shards_per_client))
+        shard_ids = list(
+            range(idx * shards_per_client, idx * shards_per_client + shards_per_client)
+        )
         picked_idx = []
         for s in shard_ids:
             start, end = s * shard_size, min((s + 1) * shard_size, len(labels))
