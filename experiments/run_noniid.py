@@ -115,7 +115,9 @@ def run_condition(
             list(pool.map(lambda a: a.train_once(), agents))
         # give the background finalizer a moment, then explicitly advance
         time.sleep(2.5)
-        requests.post(f"{url.rstrip('/')}/rooms/{room_id}/next-round", timeout=10)
+        #only go next round for round-1 itteration
+        if r < rounds - 1:
+            requests.post(f"{url.rstrip('/')}/rooms/{room_id}/next-round", timeout=10)
 
     time.sleep(2.5)
     status = requests.get(f"{url.rstrip('/')}/rooms/{room_id}", timeout=10).json()

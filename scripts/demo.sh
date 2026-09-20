@@ -14,7 +14,7 @@ echo "== 2. Client A joins and trains alone for one round =="
 # locally, and submits. Skipping it is the #1 cause of a round never
 # progressing (it just times out with zero responses and fails quorum).
 python -m tui.cli client join fashion-room --config configs/clients/client-a.yaml --url "$URL"
-python -m tui.cli train start fashion-room --rounds 5 --url "$URL"
+python -m tui.cli train start fashion-room --rounds 20 --url "$URL"
 python -m tui.cli client train fashion-room --config configs/clients/client-a.yaml --rounds 1 --url "$URL"
 
 echo "== 3. Clients B and C join WHILE training is active, then train in round 2 =="
@@ -34,10 +34,10 @@ echo "== 6. Failure injection evidence =="
 python experiments/inject_failures.py --url "$URL"
 
 echo "== 7. Scalability experiment (writes experiments/results/scalability.json) =="
-python experiments/run_scalability.py --url "$URL" --levels 1,2,4
+python experiments/run_scalability.py --rounds 20 --url "$URL" --levels 1,2,4,8
 
 echo "== 8. Non-IID experiment (writes experiments/results/noniid.json) =="
-python experiments/run_noniid.py --url "$URL"
+python experiments/run_noniid.py --rounds 20 --url "$URL"
 
 echo "== 9. Render plots/tables from the artifacts above =="
 python experiments/plot_results.py

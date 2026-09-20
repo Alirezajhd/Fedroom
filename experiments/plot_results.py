@@ -8,6 +8,7 @@ Produces the plots/tables required by Part 3.8:
 Reads the JSON files written by run_scalability.py / run_noniid.py and
 writes PNGs + a markdown table summary into experiments/results/plots/.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -36,7 +37,11 @@ def plot_scalability(path: str, out_dir: str):
     plt.ylabel("Total wall-clock time (s)")
     plt.title("Scalability: total time vs client count")
     plt.grid(True, alpha=0.3)
-    plt.savefig(os.path.join(out_dir, "scalability_total_time.png"), dpi=150, bbox_inches="tight")
+    plt.savefig(
+        os.path.join(out_dir, "scalability_total_time.png"),
+        dpi=150,
+        bbox_inches="tight",
+    )
     plt.close()
 
     # Round duration vs selected client count, pulled from MLflow-tracked
@@ -51,15 +56,21 @@ def plot_scalability(path: str, out_dir: str):
     plt.title("Round duration vs round, by client count")
     plt.legend()
     plt.grid(True, alpha=0.3)
-    plt.savefig(os.path.join(out_dir, "round_duration_vs_clients.png"), dpi=150, bbox_inches="tight")
+    plt.savefig(
+        os.path.join(out_dir, "round_duration_vs_clients.png"),
+        dpi=150,
+        bbox_inches="tight",
+    )
     plt.close()
 
     with open(os.path.join(out_dir, "scalability_table.md"), "w") as f:
         f.write("| Clients | Engine | Total wall (s) | Final round | Final version |\n")
         f.write("|---|---|---|---|---|\n")
         for d in data:
-            f.write(f"| {d['n_clients']} | {d['engine']} | {d['total_wall_seconds']:.2f} "
-                     f"| {d['final_round']} | {d['final_version']} |\n")
+            f.write(
+                f"| {d['n_clients']} | {d['engine']} | {d['total_wall_seconds']:.2f} "
+                f"| {d['final_round']} | {d['final_version']} |\n"
+            )
 
     print(f"wrote scalability plots/table to {out_dir}")
 
@@ -71,6 +82,7 @@ def plot_noniid(path: str, out_dir: str):
     with open(path) as f:
         data = json.load(f)
 
+    # 1. Plot: Completed Clients (Existing)
     plt.figure()
     for condition, history in data.items():
         rounds = [m["round"] for m in history]
@@ -81,7 +93,28 @@ def plot_noniid(path: str, out_dir: str):
     plt.title("Non-IID comparison: completed clients per round")
     plt.legend()
     plt.grid(True, alpha=0.3)
-    plt.savefig(os.path.join(out_dir, "noniid_completed_clients.png"), dpi=150, bbox_inches="tight")
+    plt.savefig(
+        os.path.join(out_dir, "noniid_completed_clients.png"),
+        dpi=150,
+        bbox_inches="tight",
+    )
+    plt.close()
+
+    # 2. Plot: Accuracy / Global Task Metric (NEW)
+    plt.figure()
+    for condition, history in data.items():
+        rounds = [m["round"] for m in history]
+        # Extract the pre-train evaluation accuracy and convert to percentage
+        accuracy = [m.get("avg_pretrain_eval_accuracy", 0) * 100 for m in history]
+        plt.plot(rounds, accuracy, marker="o", label=condition)
+    plt.xlabel("Round")
+    plt.ylabel("Global Accuracy Estimate (%)")
+    plt.title("Non-IID comparison: Accuracy vs Round")
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.savefig(
+        os.path.join(out_dir, "noniid_accuracy.png"), dpi=150, bbox_inches="tight"
+    )
     plt.close()
 
     print(f"wrote non-IID plots to {out_dir}")
