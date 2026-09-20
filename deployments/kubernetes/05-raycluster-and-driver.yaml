@@ -20,15 +20,17 @@ spec:
       spec:
         containers:
           - name: ray-head
-            image: fedroom/client:latest   # reuses the client image (has ray + torch)
-            command: ["ray", "start", "--head", "--block", "--dashboard-host=0.0.0.0"]
+            image: fedroom/client:latest # reuses the client image (has ray + torch)
+            imagePullPolicy: IfNotPresent
+            command:
+              ["ray", "start", "--head", "--block", "--dashboard-host=0.0.0.0"]
             ports:
-              - {containerPort: 6379, name: gcs}
-              - {containerPort: 8265, name: dashboard}
-              - {containerPort: 10001, name: client}
+              - { containerPort: 6379, name: gcs }
+              - { containerPort: 8265, name: dashboard }
+              - { containerPort: 10001, name: client }
             resources:
-              requests: {cpu: "500m", memory: "1Gi"}
-              limits: {cpu: "2", memory: "2Gi"}
+              requests: { cpu: "500m", memory: "1Gi" }
+              limits: { cpu: "2", memory: "2Gi" }
   workerGroupSpecs:
     - groupName: workers
       replicas: 3
@@ -40,10 +42,17 @@ spec:
           containers:
             - name: ray-worker
               image: fedroom/client:latest
-              command: ["ray", "start", "--address=fedroom-ray-head-svc:6379", "--block"]
+              imagePullPolicy: IfNotPresent
+              command:
+                [
+                  "ray",
+                  "start",
+                  "--address=fedroom-ray-head-svc:6379",
+                  "--block",
+                ]
               resources:
-                requests: {cpu: "500m", memory: "1Gi"}
-                limits: {cpu: "2", memory: "2Gi"}
+                requests: { cpu: "500m", memory: "1Gi" }
+                limits: { cpu: "2", memory: "2Gi" }
 ---
 apiVersion: batch/v1
 kind: Job
@@ -58,9 +67,19 @@ spec:
       containers:
         - name: driver
           image: fedroom/client:latest
-          command: ["python", "experiments/run_scalability.py"]
+          imagePullPolicy: IfNotPresent
+          command:
+            [
+              "python",
+              "experiments/run_scalability.py",
+              "--round-timeout-seconds",
+              "60000",
+            ]
           env:
-            - {name: RAY_ADDRESS, value: "ray://fedroom-ray-head-svc:10001"}
-            - {name: FEDROOM_COORDINATOR_URL, value: "http://coordinator:8000"}
-            - {name: FEDROOM_ROOM_ID, value: "fashion-room"}
-            - {name: SCALE_LEVELS, value: "1,2,4,8,20,50,100"}
+            - { name: RAY_ADDRESS, value: "ray://fedroom-ray-head-svc:10001" }
+            - {
+                name: FEDROOM_COORDINATOR_URL,
+                value: "http://coordinator:8000",
+              }
+            - { name: FEDROOM_ROOM_ID, value: "fashion-room" }
+            - { name: SCALE_LEVELS, value: "1,2,4,8,20,100" }

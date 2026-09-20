@@ -1,0 +1,13 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: fedroom-cluster
+nodes:
+  # The control plane node that runs the Kubernetes API
+  - role: control-plane
+    image: kindest/node:v1.31.14
+
+  # 3 Worker nodes to satisfy the "deploy across 2 compute nodes" requirement
+  - role: worker
+    image: kindest/node:v1.31.14
+  - role: worker
+    image: kindest/node:v1.31.14

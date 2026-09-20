@@ -25,6 +25,7 @@ spec:
       containers:
         - name: mlflow
           image: fedroom/mlflow:latest   # build from Dockerfile.mlflow and push, or use a public mlflow image
+          imagePullPolicy: IfNotPresent
           command:
             - mlflow
             - server

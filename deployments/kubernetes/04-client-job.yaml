@@ -13,32 +13,50 @@ metadata:
   name: fedroom-clients
   namespace: fedroom
 spec:
-  completions: 2        # <-- scale sweep: 1, 2, 4, 8
-  parallelism: 2        # <-- keep equal to `completions` for a true burst-join
+  completions: 2 # <-- scale sweep: 1, 2, 4, 8
+  parallelism: 2 # <-- keep equal to `completions` for a true burst-join
   completionMode: Indexed
   backoffLimit: 0
   template:
     metadata:
-      labels: {app: fedroom-client}
+      labels: { app: fedroom-client }
     spec:
       restartPolicy: Never
-      # topologySpreadConstraints:
-      #   - maxSkew: 1
-      #     topologyKey: kubernetes.io/hostname
-      #     whenUnsatisfiable: ScheduleAnyway
-      #     labelSelector:
-      #       matchLabels: {app: fedroom-client}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: {app: fedroom-client}
       containers:
         - name: client
           image: fedroom/client:latest
+          imagePullPolicy: IfNotPresent
           args: ["configs/clients/client-a.yaml", "--rounds", "10"]
           env:
-            - {name: FEDROOM_COORDINATOR_URL, value: "http://coordinator:8000"}
-            - {name: FEDROOM_ROOM_ID, value: "fashion-room"}
-            - {name: FEDROOM_N_CLIENTS, value: "2"}   # keep in sync with `completions`
-            - {name: S3_ENDPOINT_URL, value: "http://minio:9000"}
-            - {name: S3_ACCESS_KEY, valueFrom: {secretKeyRef: {name: minio-credentials, key: MINIO_ROOT_USER}}}
-            - {name: S3_SECRET_KEY, valueFrom: {secretKeyRef: {name: minio-credentials, key: MINIO_ROOT_PASSWORD}}}
+            - {
+                name: FEDROOM_COORDINATOR_URL,
+                value: "http://coordinator:8000",
+              }
+            - { name: FEDROOM_ROOM_ID, value: "fashion-room" }
+            - { name: FEDROOM_N_CLIENTS, value: "2" } # keep in sync with `completions`
+            - { name: S3_ENDPOINT_URL, value: "http://minio:9000" }
+            - {
+                name: S3_ACCESS_KEY,
+                valueFrom:
+                  {
+                    secretKeyRef:
+                      { name: minio-credentials, key: MINIO_ROOT_USER },
+                  },
+              }
+            - {
+                name: S3_SECRET_KEY,
+                valueFrom:
+                  {
+                    secretKeyRef:
+                      { name: minio-credentials, key: MINIO_ROOT_PASSWORD },
+                  },
+              }
           resources:
-            requests: {cpu: "250m", memory: "512Mi"}
-            limits: {cpu: "1", memory: "1Gi"}
+            requests: { cpu: "250m", memory: "512Mi" }
+            limits: { cpu: "1", memory: "1Gi" }

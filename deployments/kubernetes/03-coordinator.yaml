@@ -39,6 +39,7 @@ spec:
       containers:
         - name: coordinator
           image: fedroom/coordinator:latest
+          imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef: {name: coordinator-config}
             - secretRef: {name: minio-credentials}

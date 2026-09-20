@@ -8,7 +8,7 @@ aggregation:
   min_available_clients: 1
   min_fit_clients: 1
   quorum: 0.67
-  round_timeout_seconds: 120
+  round_timeout_seconds: 60000
   byzantine_f: 0             # only used by trimmed_mean / median / krum / multi_krum
   max_update_norm: null      # set a float to enable a hard update-size limit
 
