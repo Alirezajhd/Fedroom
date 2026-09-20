@@ -15,9 +15,9 @@ Usage:
 
 Exits non-zero (via AssertionError) on the first failing check.
 """
-
 import argparse
 import sys
+sys.modules['torch'] = None          # <--- Add this
 import time
 from pathlib import Path
 
