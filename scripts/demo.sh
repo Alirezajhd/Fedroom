@@ -39,7 +39,13 @@ python experiments/run_scalability.py --rounds 20 --url "$URL" --levels 1,2,4,8
 echo "== 8. Non-IID experiment (writes experiments/results/noniid.json) =="
 python experiments/run_noniid.py --rounds 20 --url "$URL"
 
-echo "== 9. Render plots/tables from the artifacts above =="
+echo "== 9. Poisoning Attack Defense (writes experiments/results/poisoning.json) =="
+python experiments/run_poisoning_attack.py --rounds 8 --url "$URL"
+
+echo "== 10. Render plots/tables from the artifacts above =="
 python experiments/plot_results.py
+
+echo "== 11. Print demo summary =="
+python scripts/print_demo_summary.py
 
 echo "Demo complete. See experiments/results/ for scalability/non-IID artifacts."

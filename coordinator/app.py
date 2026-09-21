@@ -124,11 +124,9 @@ def _log_metrics(room: Room, summary: dict) -> None:
     # (see scripts/scale-experiment.sh and docs/report.md Section 5.4) --
     # that captures client pods too, which this cannot.
     try:
-        import psutil
-
-        proc = psutil.Process(os.getpid())
-        metrics["coordinator_cpu_percent"] = proc.cpu_percent(interval=0.1)
-        metrics["coordinator_memory_mb"] = proc.memory_info().rss / (1024 * 1024)
+            import psutil
+            metrics["system_cpu_percent"] = psutil.cpu_percent(interval=0.1)
+            metrics["system_memory_mb"] = psutil.virtual_memory().used / (1024 * 1024)
     except ImportError:
         pass
 
@@ -414,19 +412,16 @@ def healthz():
 
 @app.get("/system")
 def system_metrics():
-    """Live coordinator process CPU/memory -- kept as a separate endpoint
-    (rather than folded into RoomManager's per-round summary) so the
-    round-summary data structure stays infrastructure-free and easy to unit
-    test (see tests/test_metrics.py). Polled by the dashboard for its
-    system-metrics cards; also what experiments/verify_metrics.py checks.
-    """
+    """Live system-wide CPU/memory for the dashboard."""
     try:
         import psutil
-
-        proc = psutil.Process(os.getpid())
+        
+        # Calculate memory in MB (used memory / 1024 / 1024)
+        mem = psutil.virtual_memory()
+        
         return {
-            "cpu_percent": proc.cpu_percent(interval=0.1),
-            "memory_mb": proc.memory_info().rss / (1024 * 1024),
+            "cpu_percent": psutil.cpu_percent(interval=0.1),       # System-wide CPU %
+            "memory_mb": mem.used / (1024 * 1024),                 # System-wide RAM used
             "available": True,
         }
     except ImportError:

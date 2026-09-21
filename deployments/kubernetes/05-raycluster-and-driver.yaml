@@ -73,7 +73,7 @@ spec:
               "python",
               "experiments/run_scalability.py",
               "--round-timeout-seconds",
-              "60000",
+              "500",
             ]
           env:
             - { name: RAY_ADDRESS, value: "ray://fedroom-ray-head-svc:10001" }
