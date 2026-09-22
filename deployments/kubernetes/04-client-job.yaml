@@ -32,7 +32,7 @@ spec:
         - name: client
           image: fedroom/client:latest
           imagePullPolicy: IfNotPresent
-          args: ["configs/clients/client-a.yaml", "--rounds", "10"]
+          args: ["configs/clients/client-a.yaml", "--rounds", "3"]
           env:
             - {
                 name: FEDROOM_COORDINATOR_URL,
