@@ -7,6 +7,7 @@ HTTP <-> RoomManager <-> storage/tracking backends <-> SQLAlchemy audit log.
 
 Run with:  uvicorn coordinator.app:app --host 0.0.0.0 --port 8000
 """
+
 from __future__ import annotations
 
 import logging
@@ -15,7 +16,7 @@ import threading
 import time
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -23,8 +24,20 @@ from coordinator.aggregation import ModelContract
 from coordinator.codec import b64_to_state, state_to_b64
 from coordinator.config import settings
 from coordinator.db import build_sessionmaker
-from coordinator.models import AuditLogORM, CheckpointORM, ClientEventORM, RoomORM, RoundEventORM
-from coordinator.roommanager import AggregationConfig, ClientStatus, Room, RoomManager, RoomState
+from coordinator.models import (
+    AuditLogORM,
+    CheckpointORM,
+    ClientEventORM,
+    RoomORM,
+    RoundEventORM,
+)
+from coordinator.roommanager import (
+    AggregationConfig,
+    ClientStatus,
+    Room,
+    RoomManager,
+    RoomState,
+)
 from coordinator.schemas import (
     InferenceLogRequest,
     JoinRequest,
@@ -36,7 +49,17 @@ from coordinator.schemas import (
 from coordinator.storage import build_checkpoint_store
 from coordinator.tracking import build_tracker
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+# --- Security / Authentication ---
+def verify_client(x_api_key: str = Header("fedroom-secret")):
+    expected_key = os.environ.get("FEDROOM_API_KEY", "fedroom-secret")
+    if x_api_key != expected_key:
+        raise HTTPException(status_code=403, detail="Unauthorized: Invalid API Key")
+
+
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+)
 logger = logging.getLogger("fedroom.coordinator")
 
 app = FastAPI(title="Fedroom Coordinator", version="1.0.0")
@@ -60,7 +83,9 @@ def _persist_checkpoint(room: Room, version: int, state) -> str:
 def _log_metrics(room: Room, summary: dict) -> None:
     run_id = _mlflow_run_ids.get(room.room_id)
     if run_id is None:
-        run_id = tracker.start_run(experiment=f"fedroom-{room.room_id}", run_name=room.room_id)
+        run_id = tracker.start_run(
+            experiment=f"fedroom-{room.room_id}", run_name=room.room_id
+        )
         _mlflow_run_ids[room.room_id] = run_id
         tracker.log_params(
             {
@@ -88,32 +113,60 @@ def _log_metrics(room: Room, summary: dict) -> None:
         # it was just handed (before local training) on a held-out slice of
         # its own data. See RoomManager._summarize_client_metrics and
         # docs/EXPLAINER.md Section 8 for the full explanation and caveats.
-        **({"global_accuracy_estimate": summary["avg_pretrain_eval_accuracy"]}
-           if "avg_pretrain_eval_accuracy" in summary else {}),
-        **({"global_loss_estimate": summary["avg_pretrain_eval_loss"]}
-           if "avg_pretrain_eval_loss" in summary else {}),
-        **({"avg_client_train_accuracy": summary["avg_train_accuracy"]}
-           if "avg_train_accuracy" in summary else {}),
-        **({"avg_client_train_loss": summary["avg_train_loss"]}
-           if "avg_train_loss" in summary else {}),
-
+        **(
+            {"global_accuracy_estimate": summary["avg_pretrain_eval_accuracy"]}
+            if "avg_pretrain_eval_accuracy" in summary
+            else {}
+        ),
+        **(
+            {"global_loss_estimate": summary["avg_pretrain_eval_loss"]}
+            if "avg_pretrain_eval_loss" in summary
+            else {}
+        ),
+        **(
+            {"avg_client_train_accuracy": summary["avg_train_accuracy"]}
+            if "avg_train_accuracy" in summary
+            else {}
+        ),
+        **(
+            {"avg_client_train_loss": summary["avg_train_loss"]}
+            if "avg_train_loss" in summary
+            else {}
+        ),
         # --- Timing metric group -----------------------------------
         "round_duration_seconds": summary["duration_seconds"],
         "aggregation_seconds": summary["aggregation_seconds"],
-        **({"avg_client_selection_wait_seconds": summary["avg_selection_wait_seconds"]}
-           if "avg_selection_wait_seconds" in summary else {}),
-        **({"avg_client_local_training_seconds": summary["avg_local_training_seconds"]}
-           if "avg_local_training_seconds" in summary else {}),
-        **({"avg_client_download_seconds": summary["avg_download_seconds"]}
-           if "avg_download_seconds" in summary else {}),
-        **({"avg_client_upload_seconds": summary["avg_upload_seconds"]}
-           if "avg_upload_seconds" in summary else {}),
-
+        **(
+            {"avg_client_selection_wait_seconds": summary["avg_selection_wait_seconds"]}
+            if "avg_selection_wait_seconds" in summary
+            else {}
+        ),
+        **(
+            {"avg_client_local_training_seconds": summary["avg_local_training_seconds"]}
+            if "avg_local_training_seconds" in summary
+            else {}
+        ),
+        **(
+            {"avg_client_download_seconds": summary["avg_download_seconds"]}
+            if "avg_download_seconds" in summary
+            else {}
+        ),
+        **(
+            {"avg_client_upload_seconds": summary["avg_upload_seconds"]}
+            if "avg_upload_seconds" in summary
+            else {}
+        ),
         # --- System metric group: payload size / network bytes -----
-        **({"avg_update_payload_bytes": summary["avg_payload_bytes"]}
-           if "avg_payload_bytes" in summary else {}),
-        **({"total_update_payload_bytes": summary["total_payload_bytes"]}
-           if "total_payload_bytes" in summary else {}),
+        **(
+            {"avg_update_payload_bytes": summary["avg_payload_bytes"]}
+            if "avg_payload_bytes" in summary
+            else {}
+        ),
+        **(
+            {"total_update_payload_bytes": summary["total_payload_bytes"]}
+            if "total_payload_bytes" in summary
+            else {}
+        ),
     }
 
     # --- System metric group: coordinator process CPU/memory ---------
@@ -124,9 +177,10 @@ def _log_metrics(room: Room, summary: dict) -> None:
     # (see scripts/scale-experiment.sh and docs/report.md Section 5.4) --
     # that captures client pods too, which this cannot.
     try:
-            import psutil
-            metrics["system_cpu_percent"] = psutil.cpu_percent(interval=0.1)
-            metrics["system_memory_mb"] = psutil.virtual_memory().used / (1024 * 1024)
+        import psutil
+
+        metrics["system_cpu_percent"] = psutil.cpu_percent(interval=0.1)
+        metrics["system_memory_mb"] = psutil.virtual_memory().used / (1024 * 1024)
     except ImportError:
         pass
 
@@ -157,7 +211,9 @@ def _log_metrics(room: Room, summary: dict) -> None:
     logger.info("room=%s round=%s summary=%s", room.room_id, summary["round"], summary)
 
 
-manager = RoomManager(clock=time.time, on_checkpoint=_persist_checkpoint, on_metrics=_log_metrics)
+manager = RoomManager(
+    clock=time.time, on_checkpoint=_persist_checkpoint, on_metrics=_log_metrics
+)
 
 _background_stop = threading.Event()
 
@@ -176,8 +232,10 @@ def _background_finalizer_loop():
 def _on_startup():
     t = threading.Thread(target=_background_finalizer_loop, daemon=True)
     t.start()
-    logger.info("Fedroom coordinator started; background finalizer running every %.1fs",
-                settings.tick_interval_seconds)
+    logger.info(
+        "Fedroom coordinator started; background finalizer running every %.1fs",
+        settings.tick_interval_seconds,
+    )
 
 
 @app.on_event("shutdown")
@@ -194,7 +252,9 @@ def create_room(req: RoomCreateRequest):
         contract = ModelContract(
             model_id=req.model_contract.model_id,
             framework=req.model_contract.framework,
-            param_shapes={k: tuple(v) for k, v in req.model_contract.param_shapes.items()},
+            param_shapes={
+                k: tuple(v) for k, v in req.model_contract.param_shapes.items()
+            },
             max_update_norm=req.model_contract.max_update_norm,
         )
         agg_config = AggregationConfig(**req.aggregation.dict())
@@ -219,7 +279,11 @@ def create_room(req: RoomCreateRequest):
                 )
             )
             session.commit()
-        return {"room_id": room.room_id, "state": room.state.value, "version": room.current_version}
+        return {
+            "room_id": room.room_id,
+            "state": room.state.value,
+            "version": room.current_version,
+        }
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -279,18 +343,26 @@ def next_round(room_id: str):
 # --------------------------------------------------------------------------- #
 # Client membership
 # --------------------------------------------------------------------------- #
-@app.post("/rooms/{room_id}/join")
+#
+@app.post("/rooms/{room_id}/join", dependencies=[Depends(verify_client)])
 def join(room_id: str, req: JoinRequest):
     try:
         record = manager.join_client(room_id, req.client_id, req.capabilities)
         with SessionLocal() as session:
             session.add(
-                ClientEventORM(room_id=room_id, client_id=req.client_id, event="joined",
-                                detail={"eligible_from_round": record.eligible_from_round})
+                ClientEventORM(
+                    room_id=room_id,
+                    client_id=req.client_id,
+                    event="joined",
+                    detail={"eligible_from_round": record.eligible_from_round},
+                )
             )
             session.commit()
-        return {"client_id": req.client_id, "status": record.status.value,
-                "eligible_from_round": record.eligible_from_round}
+        return {
+            "client_id": req.client_id,
+            "status": record.status.value,
+            "eligible_from_round": record.eligible_from_round,
+        }
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -300,7 +372,9 @@ def leave(room_id: str, req: LeaveRequest):
     try:
         manager.leave_client(room_id, req.client_id)
         with SessionLocal() as session:
-            session.add(ClientEventORM(room_id=room_id, client_id=req.client_id, event="left"))
+            session.add(
+                ClientEventORM(room_id=room_id, client_id=req.client_id, event="left")
+            )
             session.commit()
         return {"client_id": req.client_id, "status": "left"}
     except KeyError as exc:
@@ -326,12 +400,16 @@ def get_model(room_id: str, version: Optional[str] = "latest"):
             "param_shapes": {k: list(v) for k, v in room.contract.param_shapes.items()},
         },
         "state_b64": state_to_b64(room.global_state),
-        "expected_round": (room.active_round.round_number if room.active_round else room.current_round + 1),
+        "expected_round": (
+            room.active_round.round_number
+            if room.active_round
+            else room.current_round + 1
+        ),
         "selected": (room.active_round.selected if room.active_round else []),
     }
 
 
-@app.post("/rooms/{room_id}/updates")
+@app.post("/rooms/{room_id}/updates", dependencies=[Depends(verify_client)])
 def submit_update(room_id: str, req: UpdateSubmitRequest):
     request_t0 = time.perf_counter()
     try:
@@ -354,8 +432,12 @@ def submit_update(room_id: str, req: UpdateSubmitRequest):
         )
         with SessionLocal() as session:
             session.add(
-                ClientEventORM(room_id=room_id, client_id=req.client_id, event="update_accepted",
-                                detail={"n_samples": req.n_samples, "metrics": client_metrics})
+                ClientEventORM(
+                    room_id=room_id,
+                    client_id=req.client_id,
+                    event="update_accepted",
+                    detail={"n_samples": req.n_samples, "metrics": client_metrics},
+                )
             )
             session.commit()
         return {"status": "accepted"}
@@ -366,11 +448,17 @@ def submit_update(room_id: str, req: UpdateSubmitRequest):
     except ValueError as exc:
         with SessionLocal() as session:
             session.add(
-                ClientEventORM(room_id=room_id, client_id=req.client_id, event="update_rejected",
-                                detail={"reason": str(exc)})
+                ClientEventORM(
+                    room_id=room_id,
+                    client_id=req.client_id,
+                    event="update_rejected",
+                    detail={"reason": str(exc)},
+                )
             )
             session.commit()
-        return JSONResponse(status_code=422, content={"status": "rejected", "reason": str(exc)})
+        return JSONResponse(
+            status_code=422, content={"status": "rejected", "reason": str(exc)}
+        )
 
 
 @app.post("/rooms/{room_id}/tick")
@@ -388,7 +476,9 @@ def get_checkpoint(room_id: str, version: int):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     matches = [c for c in room.checkpoints if c.version == version]
     if not matches:
-        raise HTTPException(status_code=404, detail=f"No checkpoint v{version} for room '{room_id}'")
+        raise HTTPException(
+            status_code=404, detail=f"No checkpoint v{version} for room '{room_id}'"
+        )
     ck = matches[-1]
     state = checkpoint_store.load(ck.uri)
     return {"version": ck.version, "uri": ck.uri, "state_b64": state_to_b64(state)}
@@ -398,8 +488,15 @@ def get_checkpoint(room_id: str, version: int):
 def log_inference(room_id: str, req: InferenceLogRequest):
     with SessionLocal() as session:
         session.add(
-            AuditLogORM(room_id=room_id, event="inference",
-                        detail={"client_id": req.client_id, "version": req.version, "note": req.note})
+            AuditLogORM(
+                room_id=room_id,
+                event="inference",
+                detail={
+                    "client_id": req.client_id,
+                    "version": req.version,
+                    "note": req.note,
+                },
+            )
         )
         session.commit()
     return {"status": "logged"}
@@ -415,13 +512,13 @@ def system_metrics():
     """Live system-wide CPU/memory for the dashboard."""
     try:
         import psutil
-        
+
         # Calculate memory in MB (used memory / 1024 / 1024)
         mem = psutil.virtual_memory()
-        
+
         return {
-            "cpu_percent": psutil.cpu_percent(interval=0.1),       # System-wide CPU %
-            "memory_mb": mem.used / (1024 * 1024),                 # System-wide RAM used
+            "cpu_percent": psutil.cpu_percent(interval=0.1),  # System-wide CPU %
+            "memory_mb": mem.used / (1024 * 1024),  # System-wide RAM used
             "available": True,
         }
     except ImportError:
@@ -435,9 +532,15 @@ def system_metrics():
 # step, no framework, no external CDN dependency. Served at /dashboard so it
 # never shadows any API route. Missing the directory (e.g. a coordinator-only
 # checkout) degrades gracefully instead of crashing the API.
-_dashboard_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dashboard")
+_dashboard_dir = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dashboard"
+)
 if os.path.isdir(_dashboard_dir):
-    app.mount("/dashboard", StaticFiles(directory=_dashboard_dir, html=True), name="dashboard")
+    app.mount(
+        "/dashboard", StaticFiles(directory=_dashboard_dir, html=True), name="dashboard"
+    )
     logger.info("Dashboard mounted at /dashboard (serving %s)", _dashboard_dir)
 else:
-    logger.info("No dashboard/ directory found at %s; /dashboard not mounted", _dashboard_dir)
+    logger.info(
+        "No dashboard/ directory found at %s; /dashboard not mounted", _dashboard_dir
+    )

@@ -14,7 +14,7 @@ echo "== 2. Client A joins and trains alone for one round =="
 # locally, and submits. Skipping it is the #1 cause of a round never
 # progressing (it just times out with zero responses and fails quorum).
 python -m tui.cli client join fashion-room --config configs/clients/client-a.yaml --url "$URL"
-python -m tui.cli train start fashion-room --rounds 20 --url "$URL"
+python -m tui.cli train start fashion-room --rounds 1 --url "$URL"
 python -m tui.cli client train fashion-room --config configs/clients/client-a.yaml --rounds 1 --url "$URL"
 
 echo "== 3. Clients B and C join WHILE training is active, then train in round 2 =="

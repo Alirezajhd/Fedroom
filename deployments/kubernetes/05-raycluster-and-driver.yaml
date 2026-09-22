@@ -29,8 +29,8 @@ spec:
               - { containerPort: 8265, name: dashboard }
               - { containerPort: 10001, name: client }
             resources:
-              requests: { cpu: "500m", memory: "1Gi" }
-              limits: { cpu: "2", memory: "2Gi" }
+              requests: { cpu: "2", memory: "4Gi" }
+              limits: { cpu: "6", memory: "6Gi" }
   workerGroupSpecs:
     - groupName: workers
       replicas: 3
@@ -51,8 +51,8 @@ spec:
                   "--block",
                 ]
               resources:
-                requests: { cpu: "500m", memory: "1Gi" }
-                limits: { cpu: "2", memory: "2Gi" }
+                requests: { cpu: "2", memory: "4Gi" }
+                limits: { cpu: "6", memory: "6Gi" }
 ---
 apiVersion: batch/v1
 kind: Job
@@ -64,22 +64,41 @@ spec:
   template:
     spec:
       restartPolicy: Never
+      initContainers:
+        - name: wait-for-ray-client
+          image: fedroom/client:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - -c
+            - |
+              import ray, time
+              for i in range(60):
+                  try:
+                      ray.init("ray://fedroom-ray-head-svc:10001", ignore_reinit_error=True)
+                      print("Ray Client is ready!")
+                      ray.shutdown()
+                      break
+                  except Exception as e:
+                      print(f"Waiting... ({i+1}/60): {e}")
+                      time.sleep(5)
+              else:
+                  raise SystemExit("Ray Client never became ready")
       containers:
         - name: driver
           image: fedroom/client:latest
           imagePullPolicy: IfNotPresent
           command:
-            [
-              "python",
-              "experiments/run_scalability.py",
-              "--round-timeout-seconds",
-              "500",
-            ]
+            - python
+            - experiments/run_scalability.py
+            - --round-timeout-seconds
+            - "500"
           env:
-            - { name: RAY_ADDRESS, value: "ray://fedroom-ray-head-svc:10001" }
-            - {
-                name: FEDROOM_COORDINATOR_URL,
-                value: "http://coordinator:8000",
-              }
-            - { name: FEDROOM_ROOM_ID, value: "fashion-room" }
-            - { name: SCALE_LEVELS, value: "1,2,4,8,20,100" }
+            - name: RAY_ADDRESS
+              value: "ray://fedroom-ray-head-svc:10001"
+            - name: FEDROOM_COORDINATOR_URL
+              value: "http://coordinator:8000"
+            - name: FEDROOM_ROOM_ID
+              value: "fashion-room"
+            - name: SCALE_LEVELS
+              value: "1,2,4,8,20,100"

@@ -17,7 +17,7 @@ class AggregationConfigIn(BaseModel):
     min_available_clients: int = 1
     min_fit_clients: int = 1
     quorum: float = 1.0
-    round_timeout_seconds: float = 120.0
+    round_timeout_seconds: float = 500.0
     byzantine_f: int = 0
 
 

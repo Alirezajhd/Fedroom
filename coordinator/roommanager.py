@@ -65,7 +65,7 @@ class AggregationConfig:
     min_available_clients: int = 1
     min_fit_clients: int = 1
     quorum: float = 1.0  # fraction of *selected* clients required
-    round_timeout_seconds: float = 120.0
+    round_timeout_seconds: float = 500.0
     byzantine_f: int = 0  # assumed max malicious clients per round (robust strategies)
 
 

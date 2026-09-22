@@ -1,0 +1,190 @@
+{
+    "room_id": "fashion-room",
+    "state": "active",
+    "current_round": 6,
+    "current_version": 6,
+    "target_rounds": 12,
+    "clients": {
+        "client-a-0": {
+            "status": "completed",
+            "eligible_from_round": 1
+        },
+        "client-a-1": {
+            "status": "completed",
+            "eligible_from_round": 4
+        }
+    },
+    "active_round": null,
+    "checkpoints": [
+        {
+            "version": 1,
+            "uri": "s3://flaas-models/fashion-room/v00001.npz",
+            "n_clients": 1
+        },
+        {
+            "version": 2,
+            "uri": "s3://flaas-models/fashion-room/v00002.npz",
+            "n_clients": 1
+        },
+        {
+            "version": 3,
+            "uri": "s3://flaas-models/fashion-room/v00003.npz",
+            "n_clients": 1
+        },
+        {
+            "version": 4,
+            "uri": "s3://flaas-models/fashion-room/v00004.npz",
+            "n_clients": 2
+        },
+        {
+            "version": 5,
+            "uri": "s3://flaas-models/fashion-room/v00005.npz",
+            "n_clients": 2
+        },
+        {
+            "version": 6,
+            "uri": "s3://flaas-models/fashion-room/v00006.npz",
+            "n_clients": 2
+        }
+    ],
+    "metrics_history": [
+        {
+            "status": "aggregated",
+            "round": 1,
+            "new_version": 1,
+            "strategy": "fedavg",
+            "checkpoint_uri": "s3://flaas-models/fashion-room/v00001.npz",
+            "n_completed": 1,
+            "n_selected": 1,
+            "n_dropped": 0,
+            "n_rejected": 0,
+            "duration_seconds": 17.876748085021973,
+            "aggregation_seconds": 0.002469718000611465,
+            "avg_local_training_seconds": 0.06849980354309082,
+            "avg_download_seconds": 0.00464320182800293,
+            "avg_upload_seconds": 0.0014646089994130307,
+            "avg_selection_wait_seconds": 10.011363744735718,
+            "avg_train_loss": 2.300970443089803,
+            "avg_train_accuracy": 0.10416666666666667,
+            "avg_pretrain_eval_loss": 2.310628652572632,
+            "avg_pretrain_eval_accuracy": 0.13333334028720856,
+            "total_payload_bytes": 291622,
+            "avg_payload_bytes": 291622.0
+        },
+        {
+            "status": "aggregated",
+            "round": 2,
+            "new_version": 2,
+            "strategy": "fedavg",
+            "checkpoint_uri": "s3://flaas-models/fashion-room/v00002.npz",
+            "n_completed": 1,
+            "n_selected": 1,
+            "n_dropped": 0,
+            "n_rejected": 0,
+            "duration_seconds": 3.4560678005218506,
+            "aggregation_seconds": 0.0006505410001409473,
+            "avg_local_training_seconds": 0.03979921340942383,
+            "avg_download_seconds": 0.0031440258026123047,
+            "avg_upload_seconds": 0.000692397999955574,
+            "avg_selection_wait_seconds": 34.03365898132324,
+            "avg_train_loss": 2.297153949737549,
+            "avg_train_accuracy": 0.10416666666666667,
+            "avg_pretrain_eval_loss": 2.3083724975585938,
+            "avg_pretrain_eval_accuracy": 0.13333334028720856,
+            "total_payload_bytes": 291624,
+            "avg_payload_bytes": 291624.0
+        },
+        {
+            "status": "aggregated",
+            "round": 3,
+            "new_version": 3,
+            "strategy": "fedavg",
+            "checkpoint_uri": "s3://flaas-models/fashion-room/v00003.npz",
+            "n_completed": 1,
+            "n_selected": 1,
+            "n_dropped": 0,
+            "n_rejected": 0,
+            "duration_seconds": 2.824772834777832,
+            "aggregation_seconds": 0.0004860380004174658,
+            "avg_local_training_seconds": 0.04059886932373047,
+            "avg_download_seconds": 0.0031349658966064453,
+            "avg_upload_seconds": 0.0007850639995012898,
+            "avg_selection_wait_seconds": 6.007512807846069,
+            "avg_train_loss": 2.293668858210246,
+            "avg_train_accuracy": 0.10416666666666667,
+            "avg_pretrain_eval_loss": 2.306335687637329,
+            "avg_pretrain_eval_accuracy": 0.13333334028720856,
+            "total_payload_bytes": 291623,
+            "avg_payload_bytes": 291623.0
+        },
+        {
+            "status": "aggregated",
+            "round": 4,
+            "new_version": 4,
+            "strategy": "fedavg",
+            "checkpoint_uri": "s3://flaas-models/fashion-room/v00004.npz",
+            "n_completed": 2,
+            "n_selected": 2,
+            "n_dropped": 0,
+            "n_rejected": 0,
+            "duration_seconds": 25.970953702926636,
+            "aggregation_seconds": 0.0002603979992272798,
+            "avg_local_training_seconds": 0.05425894260406494,
+            "avg_download_seconds": 0.003965973854064941,
+            "avg_upload_seconds": 0.0006851989996903285,
+            "avg_selection_wait_seconds": 4.006050705909729,
+            "avg_train_loss": 2.2848421653111775,
+            "avg_train_accuracy": 0.12604166666666666,
+            "avg_pretrain_eval_loss": 2.300362467765808,
+            "avg_pretrain_eval_accuracy": 0.13750000298023224,
+            "total_payload_bytes": 583238,
+            "avg_payload_bytes": 291619.0
+        },
+        {
+            "status": "aggregated",
+            "round": 5,
+            "new_version": 5,
+            "strategy": "fedavg",
+            "checkpoint_uri": "s3://flaas-models/fashion-room/v00005.npz",
+            "n_completed": 2,
+            "n_selected": 2,
+            "n_dropped": 0,
+            "n_rejected": 0,
+            "duration_seconds": 3.070543050765991,
+            "aggregation_seconds": 0.00027506799960974604,
+            "avg_local_training_seconds": 0.04038357734680176,
+            "avg_download_seconds": 0.003331780433654785,
+            "avg_upload_seconds": 0.0007085685001584352,
+            "avg_selection_wait_seconds": 16.026056051254272,
+            "avg_train_loss": 2.280801280339559,
+            "avg_train_accuracy": 0.128125,
+            "avg_pretrain_eval_loss": 2.2973512411117554,
+            "avg_pretrain_eval_accuracy": 0.13750000298023224,
+            "total_payload_bytes": 583249,
+            "avg_payload_bytes": 291624.5
+        },
+        {
+            "status": "aggregated",
+            "round": 6,
+            "new_version": 6,
+            "strategy": "fedavg",
+            "checkpoint_uri": "s3://flaas-models/fashion-room/v00006.npz",
+            "n_completed": 2,
+            "n_selected": 2,
+            "n_dropped": 0,
+            "n_rejected": 0,
+            "duration_seconds": 3.3737645149230957,
+            "aggregation_seconds": 0.00033176500073750503,
+            "avg_local_training_seconds": 0.04137766361236572,
+            "avg_download_seconds": 0.0031110048294067383,
+            "avg_upload_seconds": 0.0006781244992453139,
+            "avg_selection_wait_seconds": 8.040657639503479,
+            "avg_train_loss": 2.2754560391108196,
+            "avg_train_accuracy": 0.14166666666666666,
+            "avg_pretrain_eval_loss": 2.2935874462127686,
+            "avg_pretrain_eval_accuracy": 0.14166666567325592,
+            "total_payload_bytes": 583248,
+            "avg_payload_bytes": 291624.0
+        }
+    ]
+}

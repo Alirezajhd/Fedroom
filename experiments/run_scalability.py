@@ -200,7 +200,7 @@ def main():
     parser.add_argument("--levels", default=os.environ.get("SCALE_LEVELS", "1,2,4,8"))
     parser.add_argument("--rounds", type=int, default=3)
     parser.add_argument("--scheme", choices=["iid", "non_iid"], default="iid")
-    parser.add_argument("--round-timeout-seconds", type=float, default=120.0)
+    parser.add_argument("--round-timeout-seconds", type=float, default=500.0)
     parser.add_argument("--out", default="experiments/results/scalability.json")
     args = parser.parse_args()
 

@@ -1,0 +1,387 @@
+[
+  {
+    "n_clients": 1,
+    "engine": "threads",
+    "total_wall_seconds": 22.45890235900879,
+    "round_wall_seconds": [
+      14.854478359222412,
+      0.041472673416137695,
+      0.040194034576416016
+    ],
+    "final_round": 3,
+    "final_version": 3,
+    "metrics_history": [
+      {
+        "status": "aggregated",
+        "round": 1,
+        "new_version": 1,
+        "strategy": "fedavg",
+        "checkpoint_uri": "s3://flaas-models/scale-1-1789891494/v00001.npz",
+        "n_completed": 1,
+        "n_selected": 1,
+        "n_dropped": 0,
+        "n_rejected": 0,
+        "duration_seconds": 15.015525579452515,
+        "aggregation_seconds": 0.00023367700123344548,
+        "avg_local_training_seconds": 0.04145026206970215,
+        "avg_download_seconds": 0.003756284713745117,
+        "avg_upload_seconds": 0.0006727210002281936,
+        "avg_selection_wait_seconds": 0.0014564990997314453,
+        "avg_train_loss": 2.307001161575317,
+        "avg_train_accuracy": 0.10625,
+        "avg_pretrain_eval_loss": 2.3301146030426025,
+        "avg_pretrain_eval_accuracy": 0.02500000037252903,
+        "total_payload_bytes": 291612,
+        "avg_payload_bytes": 291612.0
+      },
+      {
+        "status": "aggregated",
+        "round": 2,
+        "new_version": 2,
+        "strategy": "fedavg",
+        "checkpoint_uri": "s3://flaas-models/scale-1-1789891494/v00002.npz",
+        "n_completed": 1,
+        "n_selected": 1,
+        "n_dropped": 0,
+        "n_rejected": 0,
+        "duration_seconds": 1.804300308227539,
+        "aggregation_seconds": 0.00018888700105890166,
+        "avg_local_training_seconds": 0.015581846237182617,
+        "avg_download_seconds": 0.0029189586639404297,
+        "avg_upload_seconds": 0.000706050999724539,
+        "avg_selection_wait_seconds": 0.002104520797729492,
+        "avg_train_loss": 2.305887794494629,
+        "avg_train_accuracy": 0.10625,
+        "avg_pretrain_eval_loss": 2.3293886184692383,
+        "avg_pretrain_eval_accuracy": 0.02500000037252903,
+        "total_payload_bytes": 291613,
+        "avg_payload_bytes": 291613.0
+      },
+      {
+        "status": "aggregated",
+        "round": 3,
+        "new_version": 3,
+        "strategy": "fedavg",
+        "checkpoint_uri": "s3://flaas-models/scale-1-1789891494/v00003.npz",
+        "n_completed": 1,
+        "n_selected": 1,
+        "n_dropped": 0,
+        "n_rejected": 0,
+        "duration_seconds": 1.4056758880615234,
+        "aggregation_seconds": 0.00020883799879811704,
+        "avg_local_training_seconds": 0.014354467391967773,
+        "avg_download_seconds": 0.002995014190673828,
+        "avg_upload_seconds": 0.0007167100011429284,
+        "avg_selection_wait_seconds": 0.0020639896392822266,
+        "avg_train_loss": 2.3045617580413817,
+        "avg_train_accuracy": 0.10625,
+        "avg_pretrain_eval_loss": 2.328648090362549,
+        "avg_pretrain_eval_accuracy": 0.02500000037252903,
+        "total_payload_bytes": 291613,
+        "avg_payload_bytes": 291613.0
+      }
+    ],
+    "client_results": {
+      "sim-1-0": {
+        "n_results": 3
+      }
+    }
+  },
+  {
+    "n_clients": 2,
+    "engine": "threads",
+    "total_wall_seconds": 7.710381984710693,
+    "round_wall_seconds": [
+      0.05803227424621582,
+      0.0564274787902832,
+      0.055547475814819336
+    ],
+    "final_round": 3,
+    "final_version": 3,
+    "metrics_history": [
+      {
+        "status": "aggregated",
+        "round": 1,
+        "new_version": 1,
+        "strategy": "fedavg",
+        "checkpoint_uri": "s3://flaas-models/scale-2-1789891532/v00001.npz",
+        "n_completed": 2,
+        "n_selected": 2,
+        "n_dropped": 0,
+        "n_rejected": 0,
+        "duration_seconds": 1.7718713283538818,
+        "aggregation_seconds": 0.00028159600151411723,
+        "avg_local_training_seconds": 0.018117070198059082,
+        "avg_download_seconds": 0.0048569440841674805,
+        "avg_upload_seconds": 0.0006752504996256903,
+        "avg_selection_wait_seconds": 0.0025055408477783203,
+        "avg_train_loss": 2.298686957359314,
+        "avg_train_accuracy": 0.15,
+        "avg_pretrain_eval_loss": 2.2803356647491455,
+        "avg_pretrain_eval_accuracy": 0.32499998807907104,
+        "total_payload_bytes": 583221,
+        "avg_payload_bytes": 291610.5
+      },
+      {
+        "status": "aggregated",
+        "round": 2,
+        "new_version": 2,
+        "strategy": "fedavg",
+        "checkpoint_uri": "s3://flaas-models/scale-2-1789891532/v00002.npz",
+        "n_completed": 2,
+        "n_selected": 2,
+        "n_dropped": 0,
+        "n_rejected": 0,
+        "duration_seconds": 1.353062391281128,
+        "aggregation_seconds": 0.0002603169996291399,
+        "avg_local_training_seconds": 0.017450690269470215,
+        "avg_download_seconds": 0.00390779972076416,
+        "avg_upload_seconds": 0.0006732010006089695,
+        "avg_selection_wait_seconds": 0.0027489662170410156,
+        "avg_train_loss": 2.2953191995620728,
+        "avg_train_accuracy": 0.1375,
+        "avg_pretrain_eval_loss": 2.2769885063171387,
+        "avg_pretrain_eval_accuracy": 0.32499998807907104,
+        "total_payload_bytes": 583221,
+        "avg_payload_bytes": 291610.5
+      },
+      {
+        "status": "aggregated",
+        "round": 3,
+        "new_version": 3,
+        "strategy": "fedavg",
+        "checkpoint_uri": "s3://flaas-models/scale-2-1789891532/v00003.npz",
+        "n_completed": 2,
+        "n_selected": 2,
+        "n_dropped": 0,
+        "n_rejected": 0,
+        "duration_seconds": 0.9393129348754883,
+        "aggregation_seconds": 0.0002477270008967025,
+        "avg_local_training_seconds": 0.015440940856933594,
+        "avg_download_seconds": 0.004330635070800781,
+        "avg_upload_seconds": 0.0006522860003315145,
+        "avg_selection_wait_seconds": 0.0028699636459350586,
+        "avg_train_loss": 2.292012858390808,
+        "avg_train_accuracy": 0.1375,
+        "avg_pretrain_eval_loss": 2.2739291191101074,
+        "avg_pretrain_eval_accuracy": 0.32499998807907104,
+        "total_payload_bytes": 583222,
+        "avg_payload_bytes": 291611.0
+      }
+    ],
+    "client_results": {
+      "sim-2-0": {
+        "n_results": 3
+      },
+      "sim-2-1": {
+        "n_results": 3
+      }
+    }
+  },
+  {
+    "n_clients": 4,
+    "engine": "threads",
+    "total_wall_seconds": 7.910632371902466,
+    "round_wall_seconds": [
+      0.13557100296020508,
+      0.09827685356140137,
+      0.11867761611938477
+    ],
+    "final_round": 3,
+    "final_version": 3,
+    "metrics_history": [
+      {
+        "status": "aggregated",
+        "round": 1,
+        "new_version": 1,
+        "strategy": "fedavg",
+        "checkpoint_uri": "s3://flaas-models/scale-4-1789891541/v00001.npz",
+        "n_completed": 4,
+        "n_selected": 4,
+        "n_dropped": 0,
+        "n_rejected": 0,
+        "duration_seconds": 1.6308505535125732,
+        "aggregation_seconds": 0.00036816499959968496,
+        "avg_local_training_seconds": 0.028461456298828125,
+        "avg_download_seconds": 0.009245455265045166,
+        "avg_upload_seconds": 0.0008806032501524896,
+        "avg_selection_wait_seconds": 0.0043718814849853516,
+        "avg_train_loss": 2.308492398262024,
+        "avg_train_accuracy": 0.090625,
+        "avg_pretrain_eval_loss": 2.3137694001197815,
+        "avg_pretrain_eval_accuracy": 0.08750000223517418,
+        "total_payload_bytes": 1166446,
+        "avg_payload_bytes": 291611.5
+      },
+      {
+        "status": "aggregated",
+        "round": 2,
+        "new_version": 2,
+        "strategy": "fedavg",
+        "checkpoint_uri": "s3://flaas-models/scale-4-1789891541/v00002.npz",
+        "n_completed": 4,
+        "n_selected": 4,
+        "n_dropped": 0,
+        "n_rejected": 0,
+        "duration_seconds": 1.1419079303741455,
+        "aggregation_seconds": 0.000322654999763472,
+        "avg_local_training_seconds": 0.02715998888015747,
+        "avg_download_seconds": 0.010390639305114746,
+        "avg_upload_seconds": 0.0007681174997742346,
+        "avg_selection_wait_seconds": 0.0031003355979919434,
+        "avg_train_loss": 2.3074392318725585,
+        "avg_train_accuracy": 0.0890625,
+        "avg_pretrain_eval_loss": 2.3127177357673645,
+        "avg_pretrain_eval_accuracy": 0.08750000223517418,
+        "total_payload_bytes": 1166446,
+        "avg_payload_bytes": 291611.5
+      },
+      {
+        "status": "aggregated",
+        "round": 3,
+        "new_version": 3,
+        "strategy": "fedavg",
+        "checkpoint_uri": "s3://flaas-models/scale-4-1789891541/v00003.npz",
+        "n_completed": 4,
+        "n_selected": 4,
+        "n_dropped": 0,
+        "n_rejected": 0,
+        "duration_seconds": 0.6990280151367188,
+        "aggregation_seconds": 0.00034634499934327323,
+        "avg_local_training_seconds": 0.024943113327026367,
+        "avg_download_seconds": 0.007676303386688232,
+        "avg_upload_seconds": 0.0007269154998539307,
+        "avg_selection_wait_seconds": 0.004921853542327881,
+        "avg_train_loss": 2.306397831439972,
+        "avg_train_accuracy": 0.0890625,
+        "avg_pretrain_eval_loss": 2.3116583824157715,
+        "avg_pretrain_eval_accuracy": 0.08750000223517418,
+        "total_payload_bytes": 1166446,
+        "avg_payload_bytes": 291611.5
+      }
+    ],
+    "client_results": {
+      "sim-4-0": {
+        "n_results": 3
+      },
+      "sim-4-1": {
+        "n_results": 3
+      },
+      "sim-4-2": {
+        "n_results": 3
+      },
+      "sim-4-3": {
+        "n_results": 3
+      }
+    }
+  },
+  {
+    "n_clients": 8,
+    "engine": "threads",
+    "total_wall_seconds": 8.392945766448975,
+    "round_wall_seconds": [
+      0.24965810775756836,
+      0.22738027572631836,
+      0.26109981536865234
+    ],
+    "final_round": 3,
+    "final_version": 3,
+    "metrics_history": [
+      {
+        "status": "aggregated",
+        "round": 1,
+        "new_version": 1,
+        "strategy": "fedavg",
+        "checkpoint_uri": "s3://flaas-models/scale-8-1789891550/v00001.npz",
+        "n_completed": 8,
+        "n_selected": 8,
+        "n_dropped": 0,
+        "n_rejected": 0,
+        "duration_seconds": 1.0552165508270264,
+        "aggregation_seconds": 0.0005556319993047509,
+        "avg_local_training_seconds": 0.07181519269943237,
+        "avg_download_seconds": 0.024382025003433228,
+        "avg_upload_seconds": 0.0007750409999971453,
+        "avg_selection_wait_seconds": 0.01065981388092041,
+        "avg_train_loss": 2.3101731002330776,
+        "avg_train_accuracy": 0.09765625,
+        "avg_pretrain_eval_loss": 2.3001668453216553,
+        "avg_pretrain_eval_accuracy": 0.09687500121071935,
+        "total_payload_bytes": 2332873,
+        "avg_payload_bytes": 291609.125
+      },
+      {
+        "status": "aggregated",
+        "round": 2,
+        "new_version": 2,
+        "strategy": "fedavg",
+        "checkpoint_uri": "s3://flaas-models/scale-8-1789891550/v00002.npz",
+        "n_completed": 8,
+        "n_selected": 8,
+        "n_dropped": 0,
+        "n_rejected": 0,
+        "duration_seconds": 0.4509146213531494,
+        "aggregation_seconds": 0.0009277180015487829,
+        "avg_local_training_seconds": 0.07535660266876221,
+        "avg_download_seconds": 0.023303210735321045,
+        "avg_upload_seconds": 0.0009053168746504525,
+        "avg_selection_wait_seconds": 0.008390188217163086,
+        "avg_train_loss": 2.309228301048279,
+        "avg_train_accuracy": 0.09765625,
+        "avg_pretrain_eval_loss": 2.2994369566440582,
+        "avg_pretrain_eval_accuracy": 0.09687500121071935,
+        "total_payload_bytes": 2332872,
+        "avg_payload_bytes": 291609.0
+      },
+      {
+        "status": "aggregated",
+        "round": 3,
+        "new_version": 3,
+        "strategy": "fedavg",
+        "checkpoint_uri": "s3://flaas-models/scale-8-1789891550/v00003.npz",
+        "n_completed": 8,
+        "n_selected": 8,
+        "n_dropped": 0,
+        "n_rejected": 0,
+        "duration_seconds": 1.868067979812622,
+        "aggregation_seconds": 0.0006144620001578005,
+        "avg_local_training_seconds": 0.07734343409538269,
+        "avg_download_seconds": 0.0178699791431427,
+        "avg_upload_seconds": 0.0008554936250675382,
+        "avg_selection_wait_seconds": 0.009277433156967163,
+        "avg_train_loss": 2.3083186864852907,
+        "avg_train_accuracy": 0.09765625,
+        "avg_pretrain_eval_loss": 2.2987398505210876,
+        "avg_pretrain_eval_accuracy": 0.09687500121071935,
+        "total_payload_bytes": 2332876,
+        "avg_payload_bytes": 291609.5
+      }
+    ],
+    "client_results": {
+      "sim-8-0": {
+        "n_results": 3
+      },
+      "sim-8-1": {
+        "n_results": 3
+      },
+      "sim-8-2": {
+        "n_results": 3
+      },
+      "sim-8-3": {
+        "n_results": 3
+      },
+      "sim-8-4": {
+        "n_results": 3
+      },
+      "sim-8-5": {
+        "n_results": 3
+      },
+      "sim-8-6": {
+        "n_results": 3
+      },
+      "sim-8-7": {
+        "n_results": 3
+      }
+    }
+  }
+]

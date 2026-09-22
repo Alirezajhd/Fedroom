@@ -44,6 +44,11 @@ class ClientAgent:
     def __init__(self, cfg: ClientConfig):
         self.cfg = cfg
         self.session = requests.Session()
+        import os
+
+        self.session.headers.update(
+            {"X-API-Key": os.environ.get("FEDROOM_API_KEY", "fedroom-secret")}
+        )
 
     # ------------------------------------------------------------------ #
     def _url(self, path: str) -> str:
@@ -115,8 +120,14 @@ class ClientAgent:
         # is reported).
         n_val = max(1, int(0.2 * n_samples)) if n_samples >= 5 else 0
         n_train = n_samples - n_val
-        train_images, val_images = partition.images[:n_train], partition.images[n_train:]
-        train_labels, val_labels = partition.labels[:n_train], partition.labels[n_train:]
+        train_images, val_images = (
+            partition.images[:n_train],
+            partition.images[n_train:],
+        )
+        train_labels, val_labels = (
+            partition.labels[:n_train],
+            partition.labels[n_train:],
+        )
 
         try:
             import torch
@@ -149,8 +160,12 @@ class ClientAgent:
                     xv = torch.from_numpy(val_images)
                     yv = torch.from_numpy(val_labels)
                     logits = model(xv)
-                    pretrain_eval_loss = float(nn.functional.cross_entropy(logits, yv).item())
-                    pretrain_eval_accuracy = float((logits.argmax(1) == yv).float().mean().item())
+                    pretrain_eval_loss = float(
+                        nn.functional.cross_entropy(logits, yv).item()
+                    )
+                    pretrain_eval_accuracy = float(
+                        (logits.argmax(1) == yv).float().mean().item()
+                    )
 
             x = torch.from_numpy(train_images)
             y = torch.from_numpy(train_labels)
@@ -204,10 +219,15 @@ class ClientAgent:
                 for k, v in global_state.items()
             }
             elapsed = time.time() - t0
-            metrics = {"train_loss": None, "train_accuracy": None,
-                       "pretrain_eval_loss": None, "pretrain_eval_accuracy": None,
-                       "local_training_seconds": elapsed, "n_samples": n_samples,
-                       "note": "torch not installed; numpy no-op fallback update used"}
+            metrics = {
+                "train_loss": None,
+                "train_accuracy": None,
+                "pretrain_eval_loss": None,
+                "pretrain_eval_accuracy": None,
+                "local_training_seconds": elapsed,
+                "n_samples": n_samples,
+                "note": "torch not installed; numpy no-op fallback update used",
+            }
             return noisy_state, n_samples, metrics
 
     # ------------------------------------------------------------------ #
@@ -250,7 +270,9 @@ class ClientAgent:
         selection_wait_seconds = time.time() - wait_t0
 
         download_t0 = time.time()
-        model_resp = self.session.get(self._url(f"/rooms/{self.cfg.room_id}/model"), timeout=30)
+        model_resp = self.session.get(
+            self._url(f"/rooms/{self.cfg.room_id}/model"), timeout=30
+        )
         model_resp.raise_for_status()
         download_seconds = time.time() - download_t0
         payload = model_resp.json()
@@ -278,7 +300,9 @@ class ClientAgent:
         # coordinator/app.py::submit_update, which injects "upload_seconds"
         # into the metrics it hands to RoomManager. `payload_bytes` here is
         # what we DO know client-side before sending.
-        submit_body["metrics"]["payload_bytes"] = len(json.dumps(submit_body).encode("utf-8"))
+        submit_body["metrics"]["payload_bytes"] = len(
+            json.dumps(submit_body).encode("utf-8")
+        )
 
         client_side_t0 = time.time()
         submit_resp = self.session.post(
@@ -290,8 +314,11 @@ class ClientAgent:
         # processing); logged locally for the caller/CLI, not sent to the
         # server (see note above).
         client_observed_upload_seconds = time.time() - client_side_t0
-        result = {"status_code": submit_resp.status_code, "body": submit_resp.json(),
-                  "client_observed_upload_seconds": client_observed_upload_seconds}
+        result = {
+            "status_code": submit_resp.status_code,
+            "body": submit_resp.json(),
+            "client_observed_upload_seconds": client_observed_upload_seconds,
+        }
         logger.info("client %s submitted update: %s", self.cfg.client_id, result)
         return result
 
