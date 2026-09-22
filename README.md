@@ -18,15 +18,12 @@ dashboard (`/dashboard`, see §8b below).
 ## 1. System requirements
 
 - Docker + Docker Compose v2 (baseline deployment)
-- A Kubernetes cluster for the deployment/scalability experiments (`kind`
-  is fine for a single-host baseline; note in your report that CPU/
-  memory/disk/network are physically shared in that case)
+- A Kubernetes cluster for the deployment/scalability experiments. For local testing, a multi-node `kind` cluster is fully supported. You can spin up a 1-control-plane, 3-worker cluster using our provided config:
+  `kind create cluster --name fedroom --config configs/kind/kind-config.yaml`
 - Python 3.10+ if you want to run the CLI / experiment scripts from the
   host instead of inside containers
 - [KubeRay operator](https://github.com/ray-project/kuberay) installed in
-  the cluster, only if you want to run the large (20-100 client)
-  Ray-simulated scalability experiment on Kubernetes
-  (`deployments/kubernetes/05-raycluster-and-driver.yaml`)
+  the cluster (Required for the large 20-100 simulated-client Ray scalability experiment)
 
 ## 2. Architecture summary
 
@@ -36,7 +33,7 @@ metadata, and Ray/KubeRay as the distributed execution engine for
 simulated-client experiments. Full diagrams, trust boundary, and
 component responsibilities: **[`docs/architecture.md`](docs/architecture.md)**.
 
-```
+```text
 fedroom/
 ├── coordinator/         # control plane: FastAPI app, room/round state
 │                         # machine, validation, storage/tracking glue,
@@ -47,7 +44,7 @@ fedroom/
 ├── dashboard/             # bonus: single-file web dashboard (served at /dashboard)
 ├── tui/                  # Typer CLI ("fedroom" commands)
 ├── tests/                 # pytest: correctness + membership state machine
-├── configs/               # example room + client YAML configs
+├── configs/               # example room + client YAML configs, kind cluster config
 ├── deployments/
 │   ├── compose/           # Docker Compose baseline
 │   └── kubernetes/        # namespaced manifests + KubeRay
@@ -139,8 +136,13 @@ Then deploy N real client pods for the scalability sweep (see
 ./scripts/scale-experiment.sh "1 2 4 8"
 ```
 
-And, for the large (20-100) simulated-client experiment via KubeRay (after
-installing the KubeRay operator):
+And, for the large (20-100) simulated-client experiment via KubeRay, first install the operator:
+
+```bash
+kubectl create -k "github.com/ray-project/kuberay/ray-operator/config/default?ref=v1.1.1"
+```
+
+Once the operator is running, launch the simulation cluster and driver:
 
 ```bash
 kubectl apply -f deployments/kubernetes/05-raycluster-and-driver.yaml
@@ -155,7 +157,8 @@ python experiments/verify_metrics.py --url http://localhost:8000  # confirms eve
 python experiments/run_scalability.py --levels 1,2,4,8        # local Ray/thread simulation
 python experiments/run_noniid.py                              # IID vs non-IID vs robust strategy
 python experiments/inject_failures.py                         # timeout/stale/NaN/oversized rejection
-python experiments/plot_results.py                             # renders required plots/tables
+python experiments/run_poisoning_attack.py                    # Evaluates Byzantine Robustness
+python experiments/plot_results.py                            # renders required plots/tables
 ```
 
 Results land in `experiments/results/` (JSON) and
@@ -207,6 +210,7 @@ top bar).
 ./scripts/cleanup.sh
 # or, for Kubernetes:
 kubectl delete namespace fedroom
+kind delete cluster --name fedroom
 ```
 
 ## 10. Testing
@@ -237,6 +241,8 @@ a full discussion of what Fedroom does and does not protect against, and
 `strategies/robust.py`'s module docstring for the specific poisoning
 threat model the bonus robust-aggregation strategies address (and do not
 fully solve).
+
+**Client Authentication:** Fedroom utilizes a Pre-Shared Key (PSK) authentication mechanism. Both the `POST /rooms/{id}/join` and `POST /rooms/{id}/updates` endpoints mandate a valid `X-API-Key` header (configured via the `FEDROOM_API_KEY` environment variable). Unauthenticated requests are rejected with `HTTP 403 Forbidden` before triggering any internal logic.
 
 ## 13. Starting points / attribution
 
